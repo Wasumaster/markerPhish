@@ -1,0 +1,723 @@
+{
+  "model_name": "phi3.5:latest",
+  "execution_mode": "CPU Safe Mode",
+  "hardware_profile": {
+    "cpu_name": "Intel(R) Core(TM) i7-2600 CPU @ 3.40GHz",
+    "cpu_cores_physical": 4,
+    "cpu_cores_logical": 8,
+    "ram_total_gb": 15.95,
+    "ram_available_gb": 3.14,
+    "has_gpu": true,
+    "gpu_name": "NVIDIA GeForce GTX 1060 3GB",
+    "gpu_vram_mb": 3072,
+    "gpu_driver": "560.94",
+    "compute_cap": "6.1",
+    "is_pascal_or_older": true,
+    "recommended_mode": "cpu",
+    "recommendation_reason": "Detected NVIDIA GeForce GTX 1060 3GB (3072 MB VRAM, Compute 6.1). Pascal architecture (sm_61) with limited VRAM is susceptible to Ollama CUDA PTX toolchain buffer overruns. CPU Safe Mode is recommended for guaranteed numerical stability and reproducible evaluation."
+  },
+  "classification_metrics": {
+    "accuracy": 0.72,
+    "precision": 0.5882,
+    "recall": 1.0,
+    "f1": 0.7407,
+    "specificity": 0.5333,
+    "miss_rate": 0.0,
+    "false_alarm_rate": 0.4667,
+    "precision_macro": 0.7941,
+    "recall_macro": 0.7667,
+    "f1_macro": 0.7182,
+    "tp": 20,
+    "tn": 16,
+    "fp": 14,
+    "fn": 0,
+    "binary_confusion_matrix": [
+      [
+        20,
+        0
+      ],
+      [
+        14,
+        16
+      ]
+    ],
+    "binary_labels": [
+      "malicious",
+      "safe"
+    ],
+    "per_class": {
+      "malicious": {
+        "precision": 0.5882,
+        "recall": 1.0,
+        "f1-score": 0.7407,
+        "support": 20
+      },
+      "safe": {
+        "precision": 1.0,
+        "recall": 0.5333,
+        "f1-score": 0.6957,
+        "support": 30
+      }
+    },
+    "channel_metrics": {
+      "accuracy": 0.56,
+      "precision_macro": 0.6167,
+      "recall_macro": 0.654,
+      "f1_macro": 0.5319,
+      "per_class": {
+        "phishing": {
+          "precision": 0.25,
+          "recall": 1.0,
+          "f1-score": 0.4,
+          "support": 6
+        },
+        "smishing": {
+          "precision": 0.6,
+          "recall": 0.4286,
+          "f1-score": 0.5,
+          "support": 14
+        },
+        "valid": {
+          "precision": 1.0,
+          "recall": 0.5333,
+          "f1-score": 0.6957,
+          "support": 30
+        }
+      },
+      "confusion_matrix": [
+        [
+          6,
+          0,
+          0
+        ],
+        [
+          8,
+          6,
+          0
+        ],
+        [
+          10,
+          4,
+          16
+        ]
+      ],
+      "labels": [
+        "phishing",
+        "smishing",
+        "valid"
+      ]
+    },
+    "confusion_matrix": [
+      [
+        6,
+        0,
+        0
+      ],
+      [
+        8,
+        6,
+        0
+      ],
+      [
+        10,
+        4,
+        16
+      ]
+    ],
+    "labels": [
+      "phishing",
+      "smishing",
+      "valid"
+    ],
+    "unknown_predictions": 0,
+    "total_evaluated": 50,
+    "valid_predictions": 50,
+    "classification_report_text": "=== BINARY THREAT DETECTION REPORT (Malicious vs. Safe) ===\n\n              precision    recall  f1-score   support\n\n   malicious       0.59      1.00      0.74        20\n        safe       1.00      0.53      0.70        30\n\n    accuracy                           0.72        50\n   macro avg       0.79      0.77      0.72        50\nweighted avg       0.84      0.72      0.71        50\n\n=== DISTRIBUTION CHANNEL DIAGNOSTIC REPORT (Phishing vs. Smishing vs. Valid) ===\n\n              precision    recall  f1-score   support\n\n    phishing       0.25      1.00      0.40         6\n    smishing       0.60      0.43      0.50        14\n       valid       1.00      0.53      0.70        30\n\n    accuracy                           0.56        50\n   macro avg       0.62      0.65      0.53        50\nweighted avg       0.80      0.56      0.61        50\n"
+  },
+  "resource_metrics": {
+    "model_name": "phi3.5:latest",
+    "model_size_mb": 2075.4,
+    "total_records": 50,
+    "completed": 50,
+    "failed": 0,
+    "total_time_s": 750.7,
+    "avg_latency_s": 15.0064,
+    "median_latency_s": 11.188,
+    "min_latency_s": 5.5257,
+    "max_latency_s": 62.4349,
+    "p95_latency_s": 46.229,
+    "throughput_msgs_per_min": 4.0
+  },
+  "data_distribution": {
+    "true_labels": {
+      "valid": 30,
+      "smishing": 14,
+      "phishing": 6
+    },
+    "predicted_labels": {
+      "smishing": 10,
+      "valid": 16,
+      "phishing": 24
+    },
+    "true_binary": {
+      "safe": 30,
+      "malicious": 20
+    },
+    "predicted_binary": {
+      "malicious": 34,
+      "safe": 16
+    }
+  },
+  "raw_predictions": [
+    {
+      "id": 1,
+      "true": "valid",
+      "predicted": "smishing",
+      "true_binary": "safe",
+      "predicted_binary": "malicious",
+      "is_correct_binary": false,
+      "is_correct_channel": false,
+      "raw_response": "smishing",
+      "latency_s": 38.0788
+    },
+    {
+      "id": 2,
+      "true": "smishing",
+      "predicted": "smishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "smishing",
+      "latency_s": 11.293
+    },
+    {
+      "id": 3,
+      "true": "valid",
+      "predicted": "valid",
+      "true_binary": "safe",
+      "predicted_binary": "safe",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "valid",
+      "latency_s": 12.7487
+    },
+    {
+      "id": 4,
+      "true": "phishing",
+      "predicted": "phishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "phishing",
+      "latency_s": 46.7556
+    },
+    {
+      "id": 5,
+      "true": "valid",
+      "predicted": "valid",
+      "true_binary": "safe",
+      "predicted_binary": "safe",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "valid",
+      "latency_s": 8.3851
+    },
+    {
+      "id": 6,
+      "true": "phishing",
+      "predicted": "phishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "phishing",
+      "latency_s": 18.798
+    },
+    {
+      "id": 7,
+      "true": "smishing",
+      "predicted": "smishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "smishing",
+      "latency_s": 11.3354
+    },
+    {
+      "id": 8,
+      "true": "valid",
+      "predicted": "valid",
+      "true_binary": "safe",
+      "predicted_binary": "safe",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "valid",
+      "latency_s": 6.7718
+    },
+    {
+      "id": 9,
+      "true": "valid",
+      "predicted": "valid",
+      "true_binary": "safe",
+      "predicted_binary": "safe",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "valid",
+      "latency_s": 11.7385
+    },
+    {
+      "id": 10,
+      "true": "valid",
+      "predicted": "valid",
+      "true_binary": "safe",
+      "predicted_binary": "safe",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "valid",
+      "latency_s": 6.2693
+    },
+    {
+      "id": 11,
+      "true": "smishing",
+      "predicted": "phishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 12.0908
+    },
+    {
+      "id": 12,
+      "true": "smishing",
+      "predicted": "phishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 13.2403
+    },
+    {
+      "id": 13,
+      "true": "valid",
+      "predicted": "phishing",
+      "true_binary": "safe",
+      "predicted_binary": "malicious",
+      "is_correct_binary": false,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 8.1895
+    },
+    {
+      "id": 14,
+      "true": "valid",
+      "predicted": "valid",
+      "true_binary": "safe",
+      "predicted_binary": "safe",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "valid",
+      "latency_s": 6.7312
+    },
+    {
+      "id": 15,
+      "true": "smishing",
+      "predicted": "smishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "smishing",
+      "latency_s": 11.5874
+    },
+    {
+      "id": 16,
+      "true": "smishing",
+      "predicted": "phishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 13.6031
+    },
+    {
+      "id": 17,
+      "true": "smishing",
+      "predicted": "phishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 11.8664
+    },
+    {
+      "id": 18,
+      "true": "valid",
+      "predicted": "valid",
+      "true_binary": "safe",
+      "predicted_binary": "safe",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "valid",
+      "latency_s": 5.8479
+    },
+    {
+      "id": 19,
+      "true": "valid",
+      "predicted": "valid",
+      "true_binary": "safe",
+      "predicted_binary": "safe",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "valid",
+      "latency_s": 18.0548
+    },
+    {
+      "id": 20,
+      "true": "smishing",
+      "predicted": "phishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 14.29
+    },
+    {
+      "id": 21,
+      "true": "smishing",
+      "predicted": "phishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 10.9157
+    },
+    {
+      "id": 22,
+      "true": "phishing",
+      "predicted": "phishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "phishing",
+      "latency_s": 23.8743
+    },
+    {
+      "id": 23,
+      "true": "smishing",
+      "predicted": "smishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "smishing",
+      "latency_s": 12.4336
+    },
+    {
+      "id": 24,
+      "true": "valid",
+      "predicted": "valid",
+      "true_binary": "safe",
+      "predicted_binary": "safe",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "valid",
+      "latency_s": 6.1551
+    },
+    {
+      "id": 25,
+      "true": "valid",
+      "predicted": "phishing",
+      "true_binary": "safe",
+      "predicted_binary": "malicious",
+      "is_correct_binary": false,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 11.083
+    },
+    {
+      "id": 26,
+      "true": "phishing",
+      "predicted": "phishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "phishing",
+      "latency_s": 45.5855
+    },
+    {
+      "id": 27,
+      "true": "phishing",
+      "predicted": "phishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "phishing",
+      "latency_s": 18.7811
+    },
+    {
+      "id": 28,
+      "true": "valid",
+      "predicted": "phishing",
+      "true_binary": "safe",
+      "predicted_binary": "malicious",
+      "is_correct_binary": false,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 8.7466
+    },
+    {
+      "id": 29,
+      "true": "valid",
+      "predicted": "valid",
+      "true_binary": "safe",
+      "predicted_binary": "safe",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "valid",
+      "latency_s": 7.2924
+    },
+    {
+      "id": 30,
+      "true": "valid",
+      "predicted": "phishing",
+      "true_binary": "safe",
+      "predicted_binary": "malicious",
+      "is_correct_binary": false,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 8.8981
+    },
+    {
+      "id": 31,
+      "true": "smishing",
+      "predicted": "phishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 12.171
+    },
+    {
+      "id": 32,
+      "true": "valid",
+      "predicted": "valid",
+      "true_binary": "safe",
+      "predicted_binary": "safe",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "valid",
+      "latency_s": 5.5257
+    },
+    {
+      "id": 33,
+      "true": "valid",
+      "predicted": "valid",
+      "true_binary": "safe",
+      "predicted_binary": "safe",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "valid",
+      "latency_s": 56.0235
+    },
+    {
+      "id": 34,
+      "true": "smishing",
+      "predicted": "smishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "smishing",
+      "latency_s": 12.1476
+    },
+    {
+      "id": 35,
+      "true": "smishing",
+      "predicted": "phishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 10.8403
+    },
+    {
+      "id": 36,
+      "true": "valid",
+      "predicted": "valid",
+      "true_binary": "safe",
+      "predicted_binary": "safe",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "valid",
+      "latency_s": 6.6475
+    },
+    {
+      "id": 37,
+      "true": "valid",
+      "predicted": "smishing",
+      "true_binary": "safe",
+      "predicted_binary": "malicious",
+      "is_correct_binary": false,
+      "is_correct_channel": false,
+      "raw_response": "smishing",
+      "latency_s": 7.1166
+    },
+    {
+      "id": 38,
+      "true": "valid",
+      "predicted": "phishing",
+      "true_binary": "safe",
+      "predicted_binary": "malicious",
+      "is_correct_binary": false,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 8.9284
+    },
+    {
+      "id": 39,
+      "true": "valid",
+      "predicted": "valid",
+      "true_binary": "safe",
+      "predicted_binary": "safe",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "valid",
+      "latency_s": 7.2931
+    },
+    {
+      "id": 40,
+      "true": "valid",
+      "predicted": "smishing",
+      "true_binary": "safe",
+      "predicted_binary": "malicious",
+      "is_correct_binary": false,
+      "is_correct_channel": false,
+      "raw_response": "smishing",
+      "latency_s": 7.1073
+    },
+    {
+      "id": 41,
+      "true": "valid",
+      "predicted": "valid",
+      "true_binary": "safe",
+      "predicted_binary": "safe",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "valid",
+      "latency_s": 6.0714
+    },
+    {
+      "id": 42,
+      "true": "phishing",
+      "predicted": "phishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "phishing",
+      "latency_s": 34.7543
+    },
+    {
+      "id": 43,
+      "true": "valid",
+      "predicted": "valid",
+      "true_binary": "safe",
+      "predicted_binary": "safe",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "valid",
+      "latency_s": 62.4349
+    },
+    {
+      "id": 44,
+      "true": "valid",
+      "predicted": "phishing",
+      "true_binary": "safe",
+      "predicted_binary": "malicious",
+      "is_correct_binary": false,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 9.4032
+    },
+    {
+      "id": 45,
+      "true": "valid",
+      "predicted": "phishing",
+      "true_binary": "safe",
+      "predicted_binary": "malicious",
+      "is_correct_binary": false,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 10.4464
+    },
+    {
+      "id": 46,
+      "true": "valid",
+      "predicted": "smishing",
+      "true_binary": "safe",
+      "predicted_binary": "malicious",
+      "is_correct_binary": false,
+      "is_correct_channel": false,
+      "raw_response": "smishing",
+      "latency_s": 7.1315
+    },
+    {
+      "id": 47,
+      "true": "valid",
+      "predicted": "phishing",
+      "true_binary": "safe",
+      "predicted_binary": "malicious",
+      "is_correct_binary": false,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 6.897
+    },
+    {
+      "id": 48,
+      "true": "valid",
+      "predicted": "phishing",
+      "true_binary": "safe",
+      "predicted_binary": "malicious",
+      "is_correct_binary": false,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 6.7907
+    },
+    {
+      "id": 49,
+      "true": "smishing",
+      "predicted": "smishing",
+      "true_binary": "malicious",
+      "predicted_binary": "malicious",
+      "is_correct_binary": true,
+      "is_correct_channel": true,
+      "raw_response": "smishing",
+      "latency_s": 12.5573
+    },
+    {
+      "id": 50,
+      "true": "valid",
+      "predicted": "phishing",
+      "true_binary": "safe",
+      "predicted_binary": "malicious",
+      "is_correct_binary": false,
+      "is_correct_channel": false,
+      "raw_response": "phishing",
+      "latency_s": 18.5914
+    }
+  ]
+}

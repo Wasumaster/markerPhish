@@ -1,0 +1,786 @@
+{
+  "model_name": "llama3.2:latest",
+  "classification_metrics": {
+    "accuracy": 0.8,
+    "precision_macro": 0.8742,
+    "recall_macro": 0.7377,
+    "f1_macro": 0.7529,
+    "precision_weighted": 0.8643,
+    "recall_weighted": 0.8,
+    "f1_weighted": 0.7959,
+    "per_class": {
+      "phishing": {
+        "precision": 1.0,
+        "recall": 0.4375,
+        "f1-score": 0.6087,
+        "support": 16
+      },
+      "smishing": {
+        "precision": 0.6481,
+        "recall": 1.0,
+        "f1-score": 0.7865,
+        "support": 35
+      },
+      "valid": {
+        "precision": 0.9744,
+        "recall": 0.7755,
+        "f1-score": 0.8636,
+        "support": 49
+      }
+    },
+    "confusion_matrix": [
+      [
+        7,
+        8,
+        1
+      ],
+      [
+        0,
+        35,
+        0
+      ],
+      [
+        0,
+        11,
+        38
+      ]
+    ],
+    "labels": [
+      "phishing",
+      "smishing",
+      "valid"
+    ],
+    "unknown_predictions": 0,
+    "total_evaluated": 100,
+    "valid_predictions": 100,
+    "classification_report_text": "              precision    recall  f1-score   support\n\n    phishing       1.00      0.44      0.61        16\n    smishing       0.65      1.00      0.79        35\n       valid       0.97      0.78      0.86        49\n\n    accuracy                           0.80       100\n   macro avg       0.87      0.74      0.75       100\nweighted avg       0.86      0.80      0.80       100\n"
+  },
+  "resource_metrics": {
+    "model_name": "llama3.2:latest",
+    "model_size_mb": 1925.8,
+    "total_records": 100,
+    "completed": 100,
+    "failed": 0,
+    "total_time_s": 928.14,
+    "avg_latency_s": 9.276,
+    "median_latency_s": 7.2743,
+    "min_latency_s": 3.9021,
+    "max_latency_s": 27.9421,
+    "p95_latency_s": 23.4009,
+    "throughput_msgs_per_min": 6.46
+  },
+  "data_distribution": {
+    "true_labels": {
+      "valid": 49,
+      "smishing": 35,
+      "phishing": 16
+    },
+    "predicted_labels": {
+      "valid": 39,
+      "smishing": 54,
+      "phishing": 7
+    }
+  },
+  "raw_predictions": [
+    {
+      "id": 1,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 24.8215
+    },
+    {
+      "id": 2,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 6.45
+    },
+    {
+      "id": 3,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 7.5292
+    },
+    {
+      "id": 4,
+      "true": "phishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 22.052
+    },
+    {
+      "id": 5,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 5.2277
+    },
+    {
+      "id": 6,
+      "true": "phishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 9.3523
+    },
+    {
+      "id": 7,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 6.4743
+    },
+    {
+      "id": 8,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 4.9086
+    },
+    {
+      "id": 9,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 7.5999
+    },
+    {
+      "id": 10,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 4.9988
+    },
+    {
+      "id": 11,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 6.5342
+    },
+    {
+      "id": 12,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.4483
+    },
+    {
+      "id": 13,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 5.169
+    },
+    {
+      "id": 14,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 4.9822
+    },
+    {
+      "id": 15,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.6436
+    },
+    {
+      "id": 16,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.9099
+    },
+    {
+      "id": 17,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.5429
+    },
+    {
+      "id": 18,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 3.9021
+    },
+    {
+      "id": 19,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 8.3509
+    },
+    {
+      "id": 20,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.3751
+    },
+    {
+      "id": 21,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 6.3423
+    },
+    {
+      "id": 22,
+      "true": "phishing",
+      "predicted": "phishing",
+      "raw_response": "phishing",
+      "latency_s": 11.6041
+    },
+    {
+      "id": 23,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.9419
+    },
+    {
+      "id": 24,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 4.9827
+    },
+    {
+      "id": 25,
+      "true": "valid",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 6.3239
+    },
+    {
+      "id": 26,
+      "true": "phishing",
+      "predicted": "phishing",
+      "raw_response": "phishing",
+      "latency_s": 21.0276
+    },
+    {
+      "id": 27,
+      "true": "phishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 10.0591
+    },
+    {
+      "id": 28,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 6.2231
+    },
+    {
+      "id": 29,
+      "true": "valid",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 5.2296
+    },
+    {
+      "id": 30,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 6.0938
+    },
+    {
+      "id": 31,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.5595
+    },
+    {
+      "id": 32,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 4.0129
+    },
+    {
+      "id": 33,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 22.8581
+    },
+    {
+      "id": 34,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.5039
+    },
+    {
+      "id": 35,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.4334
+    },
+    {
+      "id": 36,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 4.9331
+    },
+    {
+      "id": 37,
+      "true": "valid",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 5.0569
+    },
+    {
+      "id": 38,
+      "true": "valid",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 5.4601
+    },
+    {
+      "id": 39,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 4.873
+    },
+    {
+      "id": 40,
+      "true": "valid",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 5.0412
+    },
+    {
+      "id": 41,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 4.0498
+    },
+    {
+      "id": 42,
+      "true": "phishing",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 15.5627
+    },
+    {
+      "id": 43,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 25.0987
+    },
+    {
+      "id": 44,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 5.1269
+    },
+    {
+      "id": 45,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 6.0528
+    },
+    {
+      "id": 46,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 4.9379
+    },
+    {
+      "id": 47,
+      "true": "valid",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 5.0283
+    },
+    {
+      "id": 48,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 4.7673
+    },
+    {
+      "id": 49,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 6.3818
+    },
+    {
+      "id": 50,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 9.228
+    },
+    {
+      "id": 51,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 3.9071
+    },
+    {
+      "id": 52,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 11.9828
+    },
+    {
+      "id": 53,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 5.0004
+    },
+    {
+      "id": 54,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 3.9738
+    },
+    {
+      "id": 55,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.5988
+    },
+    {
+      "id": 56,
+      "true": "phishing",
+      "predicted": "phishing",
+      "raw_response": "phishing",
+      "latency_s": 17.1592
+    },
+    {
+      "id": 57,
+      "true": "phishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 23.1824
+    },
+    {
+      "id": 58,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 6.1797
+    },
+    {
+      "id": 59,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.8515
+    },
+    {
+      "id": 60,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 6.6302
+    },
+    {
+      "id": 61,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 8.6514
+    },
+    {
+      "id": 62,
+      "true": "phishing",
+      "predicted": "phishing",
+      "raw_response": "phishing",
+      "latency_s": 21.9907
+    },
+    {
+      "id": 63,
+      "true": "phishing",
+      "predicted": "phishing",
+      "raw_response": "phishing",
+      "latency_s": 15.5337
+    },
+    {
+      "id": 64,
+      "true": "phishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 8.1246
+    },
+    {
+      "id": 65,
+      "true": "phishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 8.671
+    },
+    {
+      "id": 66,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 15.8607
+    },
+    {
+      "id": 67,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.9383
+    },
+    {
+      "id": 68,
+      "true": "valid",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 27.9421
+    },
+    {
+      "id": 69,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.4932
+    },
+    {
+      "id": 70,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 21.1545
+    },
+    {
+      "id": 71,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 5.6608
+    },
+    {
+      "id": 72,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 8.5257
+    },
+    {
+      "id": 73,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 8.0693
+    },
+    {
+      "id": 74,
+      "true": "valid",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 5.5205
+    },
+    {
+      "id": 75,
+      "true": "phishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 10.6149
+    },
+    {
+      "id": 76,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 5.3661
+    },
+    {
+      "id": 77,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 8.0572
+    },
+    {
+      "id": 78,
+      "true": "phishing",
+      "predicted": "phishing",
+      "raw_response": "phishing",
+      "latency_s": 16.3717
+    },
+    {
+      "id": 79,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.1734
+    },
+    {
+      "id": 80,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 6.8243
+    },
+    {
+      "id": 81,
+      "true": "valid",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 5.4831
+    },
+    {
+      "id": 82,
+      "true": "phishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 14.4287
+    },
+    {
+      "id": 83,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 5.4963
+    },
+    {
+      "id": 84,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.9912
+    },
+    {
+      "id": 85,
+      "true": "valid",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.7473
+    },
+    {
+      "id": 86,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 6.9747
+    },
+    {
+      "id": 87,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 6.588
+    },
+    {
+      "id": 88,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 5.4563
+    },
+    {
+      "id": 89,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 6.9983
+    },
+    {
+      "id": 90,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 6.5058
+    },
+    {
+      "id": 91,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 6.4625
+    },
+    {
+      "id": 92,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 23.3261
+    },
+    {
+      "id": 93,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 5.5851
+    },
+    {
+      "id": 94,
+      "true": "phishing",
+      "predicted": "phishing",
+      "raw_response": "phishing",
+      "latency_s": 25.02
+    },
+    {
+      "id": 95,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 5.3815
+    },
+    {
+      "id": 96,
+      "true": "valid",
+      "predicted": "valid",
+      "raw_response": "valid",
+      "latency_s": 26.8473
+    },
+    {
+      "id": 97,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 6.8466
+    },
+    {
+      "id": 98,
+      "true": "valid",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.8027
+    },
+    {
+      "id": 99,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 7.8691
+    },
+    {
+      "id": 100,
+      "true": "smishing",
+      "predicted": "smishing",
+      "raw_response": "smishing",
+      "latency_s": 6.7164
+    }
+  ]
+}
