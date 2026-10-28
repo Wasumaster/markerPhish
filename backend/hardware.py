@@ -17,7 +17,7 @@ from typing import Literal
 
 import psutil
 
-from utils import logger
+from .utils import logger
 
 
 @dataclass

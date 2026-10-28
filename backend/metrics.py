@@ -27,7 +27,7 @@ from config import (
 )
 
 if TYPE_CHECKING:
-    from evaluator import EvaluationRun
+    from .evaluator import EvaluationRun
 
 
 def compute_classification_metrics(

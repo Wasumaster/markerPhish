@@ -25,7 +25,7 @@ from config import (
     SMISHING_LABEL_MAP,
     VALID_LABELS,
 )
-from utils import clean_text, logger
+from .utils import clean_text, logger
 
 
 # ──────────────────────────────────────────────

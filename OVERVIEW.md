@@ -1,11 +1,12 @@
-#  MarkerPhish — Kompleksowa Dokumentacja Techniczna i Architektura Systemu
+
+# 📘 MarkerPhish — Kompleksowa Dokumentacja Techniczna i Architektura Systemu
 
 > **Projekt Inżynierski / Engineering Thesis Documentation**  
 > *Platforma do oceny skuteczności modeli językowych w detekcji phishingu i smishingu, z optymalizacją wykorzystywanych zasobów.*
 
 ---
 
-##  Spis Treści
+## 📑 Spis Treści
 1. [Wprowadzenie i Cel Platformy](#1-wprowadzenie-i-cel-platformy)
 2. [Globalna Architektura Systemu](#2-globalna-architektura-systemu)
 3. [Przepływ Danych (Data Flow Diagram)](#3-przepływ-danych-data-flow-diagram)
@@ -280,15 +281,15 @@ Główny interfejs użytkownika zrealizowany w bibliotece **Streamlit** z wykorz
    - Wybór zbioru danych (Seed+SMS, Seed, Rephrased, SMS, All).
    - Wybór rozmiaru próbki (Tiny 50, Small 100, Medium 250, Large 500, Full).
    - Wybór urządzenia obliczeniowego (CPU Safe Mode vs GPU Pascal).
-2. **Tab 1:  Data Overview:**
+2. **Tab 1: 📋 Data Overview:**
    - Wykres słupkowy rozkładu klas (`Plotly bar chart`).
    - Tabela podsumowująca liczbę rekordów z podziałem na źródła.
    - Paginowana przeglądarka surowych wiadomości z filtrem etykiet.
-3. **Tab 2:  Run Evaluation:**
+3. **Tab 2: 🚀 Run Evaluation:**
    - Karta parametrów wybranego eksperymentu.
    - Przycisk uruchamiający ewaluację.
    - Kontener czasu rzeczywistego: dynamiczny pasek postępu, metryka bieżącej dokładności (*Running Accuracy*), średni czas odpowiedzi i szacowany czas do zakończenia (ETA).
-4. **Tab 3:  Results:**
+4. **Tab 3: 📊 Results:**
    - Kafelki podsumowujące (Accuracy, Macro Precision, Macro Recall, Macro F1).
    - Tabela metryk dla poszczególnych klas.
    - **Interaktywna Macierz Pomyłek (Confusion Matrix):** Wygenerowana przez `px.imshow(..., text_auto=True)` z dynamiczną paletą kolorów i etykietami osi (True Class vs Predicted Class).
@@ -296,7 +297,7 @@ Główny interfejs użytkownika zrealizowany w bibliotece **Streamlit** z wykorz
    - Wykresy kołowe porównujące rozkład etykiet rzeczywistych vs przewidzianych (`px.pie`).
    - Pełny raport tekstowy scikit-learn w bloku kodu.
    - Przycisk pobierania pełnego raportu w formacie `.json`.
-5. **Tab 4:  Model Comparison:**
+5. **Tab 4: 📈 Model Comparison:**
    - Automatycznie skanuje katalog `results/` w poszukiwaniu wszystkich wcześniejszych ewaluacji.
    - Buduje tabelę porównawczą modeli (Model, Zbiór, Accuracy, F1 Macro, Średnie opóźnienie, P95, Przepustowość, Rozmiar).
    - Wyświetla wykresy słupkowe zestawiające skuteczność i szybkość poszczególnych modeli obok siebie.

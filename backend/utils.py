@@ -155,3 +155,39 @@ def load_latest_results(model_name: str | None = None) -> dict | None:
     if not files:
         return None
     return load_result_by_filename(files[0])
+
+
+# ──────────────────────────────────────────────
+# Report backward compatibility
+# ──────────────────────────────────────────────
+def ensure_report_compatibility(report: dict) -> dict:
+    """
+    Ensure saved results from older schema versions have binary metrics populated.
+    Re-derives binary confusion matrix and distributions from raw predictions if missing.
+    """
+    from config import to_binary_label
+
+    cls = report.get("classification_metrics", {})
+    if "binary_confusion_matrix" not in cls and "raw_predictions" in report:
+        # Lazy import to avoid circular dependency at module level
+        from .metrics import compute_classification_metrics
+
+        raw = report["raw_predictions"]
+        y_true = [r.get("true", r.get("true_channel", "valid")) for r in raw]
+        y_pred = [r.get("predicted", r.get("predicted_channel", "unknown")) for r in raw]
+        recomputed = compute_classification_metrics(y_true, y_pred)
+        report["classification_metrics"] = recomputed
+
+        dist = report.get("data_distribution", {})
+        if "true_binary" not in dist:
+            dist["true_binary"] = {
+                "malicious": sum(1 for t in y_true if to_binary_label(t) == "malicious"),
+                "safe": sum(1 for t in y_true if to_binary_label(t) == "safe"),
+            }
+            dist["predicted_binary"] = {
+                "malicious": sum(1 for p in y_pred if to_binary_label(p) == "malicious"),
+                "safe": sum(1 for p in y_pred if to_binary_label(p) == "safe"),
+            }
+            report["data_distribution"] = dist
+
+    return report
