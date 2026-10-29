@@ -41,67 +41,142 @@ A key feandture of the project is the simultandneous andnandlysis of **clandssif
 
 The system uses and modulandr andrchitecture with low coupling andnd high cohesion. Communicandtion with LLMs tandkes plandce locandlly through the **Ollandmand REST API**.
 
-```mermandid
-graph TD
-    subgraph Presentation["Presentation Layer - Streamlit Dashboard"]
-        UI_Sidebar["Experiment Configuration<br/>Model, Dataset, Sample Size, Device"]
-        UI_Overview["Data Overview<br/>Label Distribution, Samples"]
-        UI_Runner["Evaluation Panel<br/>Live Progress, ETA, Live Metrics"]
-        UI_Results["Results Analytics<br/>Confusion Matrix, Charts, JSON"]
-        UI_Compare["Model Comparison<br/>Cross-Model Benchmarking"]
-    end
+2.1 Presentation Layer
 
-    subgraph Data["Data Layer - data_loader.py and utils.py"]
-        RAW_JSON[("PhishFuzzer JSON<br/>Seed and Rephrased Datasets")]
-        RAW_CSV[("Mendeley SMS CSV<br/>Dataset 10191")]
-        Cleaner["Text Cleaning<br/>Unicode Normalization, Noise Removal, Truncation"]
-        Filter["Spam Filtering<br/>Label Mapping: phishing, smishing, valid"]
-        UnifiedDF["Unified DataFrame<br/>id, text, true_label, source"]
-    end
+File: app.py
 
-    subgraph Evaluation["Evaluation Layer - evaluator.py"]
-        PromptBuilder["Prompt Generation<br/>Zero-Shot Classification"]
-        OllamaClient["Ollama REST Client<br/>POST /api/generate"]
-        FallbackEngine["Pascal GPU Compatibility<br/>Automatic CPU Fallback"]
-        Parser["Response Parser<br/>Tokenization, Synonyms, Regular Expressions"]
-    end
+The presentation layer provides an interactive web interface built with Streamlit. It allows users to configure experiments, monitor evaluation progress, analyze results, and compare language models.
 
-    subgraph LLM["LLM Environment - Ollama"]
-        OllamaServer["Ollama Server<br/>localhost:11434"]
-        LLM1["Qwen 2.5 1.5B"]
-        LLM2["Llama 3.2 3B"]
-        LLM3["Phi 3.5 3.8B"]
-    end
+Main components:
 
-    subgraph Analytics["Analytics and Storage Layer"]
-        ScikitMetrics["Classification Metrics<br/>Accuracy, Precision, Recall, F1"]
-        ResMetrics["Resource Metrics<br/>Mean, P95, Min/Max, Throughput"]
-        JSON_OUT[("JSON Result Files<br/>results/eval_*.json")]
-    end
+Experiment Configuration: Selection of the LLM, dataset, sample size, and computing device.
 
-    RAW_JSON --> Filter
-    RAW_CSV --> Filter
-    Filter --> Cleaner
-    Cleaner --> UnifiedDF
+Data Overview: Visualization of dataset statistics, label distributions, and sample messages.
 
-    UnifiedDF --> UI_Overview
-    UI_Sidebar --> UI_Runner
-    UI_Runner --> PromptBuilder
+Evaluation Panel: Execution of experiments with live progress updates, estimated completion time, and current metrics.
 
-    PromptBuilder --> OllamaClient
-    OllamaClient <--> OllamaServer
-    OllamaServer --> FallbackEngine
-    FallbackEngine --> Parser
+Results Dashboard: Presentation of classification metrics, confusion matrices, charts, and JSON reports.
 
-    Parser --> ScikitMetrics
-    Parser --> ResMetrics
+Model Comparison: Comparison of evaluation results across different language models.
 
-    ScikitMetrics --> JSON_OUT
-    ResMetrics --> JSON_OUT
+2.2 Data Layer
 
-    JSON_OUT --> UI_Results
-    JSON_OUT --> UI_Compare
-```
+Files: data_loader.py, utils.py
+
+The data layer is responsible for loading, cleaning, filtering, and preparing datasets for evaluation.
+
+Data sources:
+
+PhishFuzzer: JSON datasets containing original and rephrased messages.
+
+Mendeley SMS Dataset: A CSV dataset containing SMS messages.
+
+The data preparation pipeline performs the following operations:
+
+Loads data from JSON and CSV files.
+
+Filters out excluded spam categories according to the configured label mappings.
+
+Normalizes and cleans message text.
+
+Combines the selected datasets into a unified Pandas DataFrame.
+
+Each processed record contains the following fields: id, text, true_label, and source.
+
+The supported classification labels are phishing, smishing, and valid.
+
+2.3 Evaluation Layer
+
+File: evaluator.py
+
+The evaluation layer manages communication with local language models and processes their predictions.
+
+Its main responsibilities include:
+
+Generating classification prompts using a zero-shot approach.
+
+Sending requests to the Ollama REST API through the /api/generate endpoint.
+
+Measuring inference latency and collecting response metadata.
+
+Parsing model responses into standardized classification labels.
+
+Handling GPU-related errors and retrying requests in CPU mode when necessary.
+
+Reporting evaluation progress to the Streamlit interface.
+
+The evaluation process produces individual inference results and an aggregated evaluation run.
+
+2.4 Local LLM Environment
+
+Technology: Ollama
+
+Ollama runs the language models locally and exposes an HTTP API, typically available at http://localhost:11434.
+
+The platform supports evaluating locally installed models, including:
+
+Qwen 2.5 1.5B
+
+Llama 3.2 3B
+
+Phi 3.5 3.8B
+
+The available models are retrieved dynamically from the Ollama installation.
+
+2.5 Analytics and Storage Layer
+
+Files: metrics.py, utils.py
+
+This layer calculates classification performance metrics, measures resource usage, and stores evaluation reports.
+
+Classification metrics include:
+
+Accuracy
+
+Precision
+
+Recall
+
+F1-score
+
+Per-class and macro-averaged metrics
+
+Confusion matrix
+
+Resource metrics include:
+
+Average, median, minimum, and maximum inference latency
+
+95th percentile latency (P95)
+
+Throughput in messages per minute
+
+Model size
+
+Completed evaluation reports are saved as JSON files in the results/ directory. These files are used to display results and compare models across experiments.
+
+2.6 System Workflow
+
+The complete evaluation workflow consists of the following steps:
+
+The user selects a model, dataset, sample size, and computing device in the Streamlit interface.
+
+The data loader prepares the selected dataset and converts it into a unified DataFrame.
+
+The evaluation engine generates a classification prompt for each message.
+
+The prompt is sent to the selected local LLM through the Ollama REST API.
+
+The model response is parsed into one of the supported classification labels.
+
+The system records inference latency and other available metadata.
+
+The metrics module calculates classification and resource performance metrics.
+
+The completed evaluation report is saved as a JSON file.
+
+The Streamlit dashboard displays the results and enables comparisons between models.
+
 
 ---
 
