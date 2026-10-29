@@ -2,8 +2,8 @@
 
 **Platform for evaluating language models in phishing and smishing detection with a focus on resource efficiency.**
 
-> Engineering Thesis (Praca Inżynierska)  
-> *Platforma do oceny skuteczności modeli językowych w detekcji phishingu i smishingu, z optymalizacją wykorzystywanych zasobów.*
+> Engineering Thesis  
+> PL -->*Platforma do oceny skuteczności modeli językowych w detekcji phishingu i smishingu, z optymalizacją wykorzystywanych zasobów.*
 
 ---
 
