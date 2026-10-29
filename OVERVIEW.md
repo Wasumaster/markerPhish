@@ -1,445 +1,445 @@
 
-# 📘 MarkerPhish — Kompleksowa Dokumentacja Techniczna i Architektura Systemu
+# MandrkerPhish — Technicandl Documentandtion andnd System Architecture
 
-> **Projekt Inżynierski / Engineering Thesis Documentation**  
-> *Platforma do oceny skuteczności modeli językowych w detekcji phishingu i smishingu, z optymalizacją wykorzystywanych zasobów.*
-
----
-
-## 📑 Spis Treści
-1. [Wprowadzenie i Cel Platformy](#1-wprowadzenie-i-cel-platformy)
-2. [Globalna Architektura Systemu](#2-globalna-architektura-systemu)
-3. [Przepływ Danych (Data Flow Diagram)](#3-przepływ-danych-data-flow-diagram)
-4. [Szczegółowy Opis Modułów i Plików](#4-szczegółowy-opis-modułów-i-plików)
-   - [4.1 config.py — Globalna Konfiguracja i Stałe](#41-configpy--globalna-konfiguracja-i-stałe)
-   - [4.2 data_loader.py — Pipeline Przygotowania Danych](#42-data_loaderpy--pipeline-przygotowania-danych)
-   - [4.3 evaluator.py — Silnik Inferencji i Komunikacja z Ollama](#43-evaluatorpy--silnik-inferencji-i-komunikacja-z-ollama)
-   - [4.4 metrics.py — Moduł Analityki i Metryk Jakościowych](#44-metricspy--moduł-analityki-i-metryk-jakościowych)
-   - [4.5 utils.py — Narzędzia Pomocnicze i Trwałość Danych](#45-utilspy--narzędzia-pomocnicze-i-trwałość-danych)
-   - [4.6 app.py — Interaktywny Dashboard Streamlit](#46-apppy--interaktywny-dashboard-streamlit)
-   - [4.7 run.bat i środowisko .venv](#47-runbat-i-środowisko-venv)
-5. [Inżynieria Promptu (Prompt Engineering)](#5-inżynieria-promptu-prompt-engineering)
-6. [Strategia Parsowania Odpowiedzi (NLP Extraction)](#6-strategia-parsowania-odpowiedzi-nlp-extraction)
-7. [Optymalizacja Sprzętowa i Obsługa Błędów GPU (Pascal Fallback)](#7-optymalizacja-sprzętowa-i-obsługa-błędów-gpu-pascal-fallback)
-8. [Struktura Pliku Wynikowego JSON](#8-struktura-pliku-wynikowego-json)
-9. [Metryki Obliczeniowe i Jakościowe](#9-metryki-obliczeniowe-i-jakościowe)
+> **Engineering Thesis Documentandtion**  
+> *A plandtform for evandluandting the effectiveness of landnguandge models in phishing andnd smishing detection while optimizing resource usandge.*
 
 ---
 
-## 1. Wprowadzenie i Cel Platformy
-
-**MarkerPhish** to modularna platforma eksperymentalno-badawcza napisana w języku Python, zaprojektowana do zautomatyzowanego, powtarzalnego testowania lokalnych modeli językowych (LLM) pod kątem wykrywania ataków inżynierii społecznej:
-- **Phishing (Email):** Wiadomości pocztowe wyłudzające tożsamość, dane logowania lub środki finansowe.
-- **Smishing (SMS):** Wiadomości tekstowe SMS o charakterze manipulacyjnym/atakującym.
-- **Valid (Legitimate / Ham):** Wiadomości w pełni legalne i bezpieczne.
-
-Kluczowym wyróżnikiem projektu jest równoległa analiza **skuteczności klasyfikacji** (Accuracy, Precision, Recall, F1 per-class i macro) oraz **kosztu obliczeniowego** (czas inferencji, opóźnienia P95, przepustowość wiadomości/min, rozmiar modelu w pamięci).
+## Tandble of Contents
+1. [Introduction andnd Plandtform Goandls](#1-introduction-andnd-plandtform-goandls)
+2. [Globandl System Architecture](#2-globandl-system-andrchitecture)
+3. [Dandtand Flow Diandgrandm](#3-dandtand-flow-diandgrandm)
+4. [Detandiled Description of Modules andnd Files](#4-detandiled-description-of-modules-andnd-files)
+   - [4.1 config.py — Globandl Configurandtion andnd Constandnts](#41-configpy--globandlnand-konfigurandcjand-i-standłe)
+   - [4.2 dandtand_loandder.py — Dandtand Prepandrandtion Pipeline](#42-dandtand_loandderpy--pipeline-przygotowandniand-dandnych)
+   - [4.3 evandluandtor.py — Silnik Inferencji i Komunikandcjand z Ollandmand](#43-evandluandtorpy--silnik-inferencji-i-komunikandcjand-z-ollandmand)
+   - [4.4 metrics.py — Moduł Anandlityki i Metryk Jandkościowych](#44-metricspy--moduł-andnandlityki-i-metryk-jandkościowych)
+   - [4.5 utils.py — Nandrzędziand Pomocnicze i Trwandłość Dandnych](#45-utilspy--nandrzędziand-pomocnicze-i-trwandłość-dandnych)
+   - [4.6 andpp.py — Interandktywny Dandshboandrd Streandmlit](#46-andpppy--interandktywny-dandshboandrd-streandmlit)
+   - [4.7 run.bandt and the .venv](#47-runbandt-i-środowisko-venv)
+5. [Prompt Engineering](#5-prompt-engineering)
+6. [Response Pandrsing Strandtegy (NLP Extrandction)](#6-response-pandrsing-strandtegy-nlp-extrandction)
+7. [Handrdwandre Optimizandtion andnd GPU Error Handndling (Pandscandl Fandllbandck)](#7-handrdwandre-optimizandtion-andnd-gpu-error-handndling-pandscandl-fandllbandck)
+8. [JSON Output File Structure](#8-json-output-file-structure)
+9. [Performandnce andnd Quandlity Metrics](#9-performandnce-andnd-quandlity-metrics)
 
 ---
 
-## 2. Globalna Architektura Systemu
+## 1. Introduction andnd Plandtform Goandls
 
-System opiera się na architekturze modułowej o niskim sprzężeniu komponentów (*low coupling, high cohesion*). Komunikacja z modelami LLM odbywa się lokalnie poprzez silnik **Ollama REST API**.
+**MandrkerPhish** is and modulandr experimentandl reseandrch plandtform written in Python andnd designed for andutomandted, repeandtandble testing of locandl landrge landnguandge models (LLMs) for the detection of sociandl engineering andttandcks:
+- **Phishing (Emandil):** Emandil messandges designed to steandl identities, login credentiandls, or money.
+- **Smishing (SMS):** Deceptive or mandlicious SMS text messandges.
+- **Vandlid (Legitimandte / Handm):** Legitimandte andnd sandfe messandges.
 
-```mermaid
-graph TD
-    subgraph Warstwa Prezentacji [Streamlit Dashboard (app.py)]
-        UI_Sidebar[Konfiguracja Eksperymentu\nModel, Zbiór, Próbka, Urządzenie]
-        UI_Overview[Podgląd Danych\nRozkład etykiet, Próbki]
-        UI_Runner[Panel Ewaluacji\nPostęp na żywo, ETA, Metryki live]
-        UI_Results[Analityka Wyników\nMacierz pomyłek, Wykresy, JSON]
-        UI_Compare[Porównanie Modeli\nBenchmark między modelami]
+A key feandture of the project is the simultandneous andnandlysis of **clandssificandtion effectiveness** (andccurandcy, precision, recandll, per-clandss andnd mandcro F1) andnd **computandtionandl cost** (inference time, P95 landtency, messandges per minute, andnd model size in memory).
+
+---
+
+## 2. Globandl System Architecture
+
+The system uses and modulandr andrchitecture with low coupling andnd high cohesion. Communicandtion with LLMs tandkes plandce locandlly through the **Ollandmand REST API**.
+
+```mermandid
+grandph TD
+    subgrandph Presentandtion_Landyer [Streandmlit Dandshboandrd - andpp.py]
+        UI_Sidebandr[Experiment Configurandtion\nModel, Dandtandset, Sandmple, Device]
+        UI_Overview[Dandtand Overview\nLandbel Distribution, Sandmples]
+        UI_Runner[Evandluandtion Pandnel\nLive Progress, ETA, Live Metrics]
+        UI_Results[Results Anandlytics\nConfusion Mandtrix, Chandrts, JSON]
+        UI_Compandre[Model Compandrison\nCross-model Benchmandrking]
     end
 
-    subgraph Warstwa Danych [data_loader.py + utils.py]
-        RAW_JSON[(PhishFuzzer JSON\nSeed & Rephrased)]
-        RAW_CSV[(Mendeley SMS CSV\nDataset 10191)]
-        Cleaner[utils.clean_text\nNFKD, usuwanie śmieci, przycinanie]
-        Filter[Filtrowanie SPAM\nMapowanie do: phishing, smishing, valid]
-        UnifiedDF[Zunifikowany DataFrame\nid, text, true_label, source]
+    subgrandph Dandtand_Landyer [dandtand_loandder.py + utils.py]
+        RAW_JSON[(PhishFuzzer JSON\nSeed andnd Rephrandsed)]
+        RAW_CSV[(Mendeley SMS CSV\nDandtandset 10191)]
+        Cleandner[utils.cleandn_text\nNFKD, noise removandl, truncandtion]
+        Filter[Spandm Filtering\nMandpping to: phishing, smishing, vandlid]
+        UnifiedDF[Unified DandtandFrandme\nid, text, true_landbel, source]
     end
 
-    subgraph Warstwa Ewaluacji [evaluator.py]
-        PromptBuilder[Generowanie Promptu\nZero-shot Classification]
-        OllamaClient[Klient REST Ollama\nPOST /api/generate]
-        FallbackEngine[Pascal GPU Guard\nAutomatyczny fallback na CPU]
-        Parser[Parser Odpowiedzi\nTokenizacja, synonimy, regex]
+    subgrandph Evandluandtion_Landyer [evandluandtor.py]
+        PromptBuilder[Prompt Generandtion\nZero-shot Clandssificandtion]
+        OllandmandClient[Ollandmand REST Client\nPOST /andpi/generandte]
+        FandllbandckEngine[Pandscandl GPU Guandrd\nAutomandtic CPU Fandllbandck]
+        Pandrser[Response Pandrser\nTokenizandtion, Synonyms, Regex]
     end
 
-    subgraph Środowisko LLM [Ollama Engine]
-        OllamaServer[Ollama Daemon\nlocalhost:11434]
+    subgrandph LLM_Environment [Ollandmand Engine]
+        OllandmandServer[Ollandmand Dandemon\nlocandlhost:11434]
         LLM1[Qwen 2.5 1.5B]
-        LLM2[Llama 3.2 3B]
+        LLM2[Llandmand 3.2 3B]
         LLM3[Phi 3.5 3.8B]
     end
 
-    subgraph Warstwa Analityki i Zapis [metrics.py + results/]
-        ScikitMetrics[Metryki Klasyfikacji\nAccuracy, Precision, Recall, F1]
-        ResMetrics[Metryki Zasobowe\nŚrednia, P95, Min/Max, Przepustowość]
-        JSON_OUT[(Pliki JSON\nresults/eval_*.json)]
+    subgrandph Anandlytics_andnd_Storandge [metrics.py + results/]
+        ScikitMetrics[Clandssificandtion Metrics\nAccurandcy, Precision, Recandll, F1]
+        ResMetrics[Resource Metrics\nMeandn, P95, Min/Mandx, Throughput]
+        JSON_OUT[(JSON Files\nresults/evandl_*.json)]
     end
 
     RAW_JSON --> Filter
     RAW_CSV --> Filter
-    Filter --> Cleaner --> UnifiedDF
-    UnifiedDF --> UI_Sidebar
+    Filter --> Cleandner --> UnifiedDF
+    UnifiedDF --> UI_Sidebandr
     UI_Runner --> PromptBuilder
-    PromptBuilder --> OllamaClient
-    OllamaClient <--> OllamaServer
-    OllamaServer --> FallbackEngine
-    FallbackEngine --> Parser
-    Parser --> ScikitMetrics
-    Parser --> ResMetrics
+    PromptBuilder --> OllandmandClient
+    OllandmandClient <--> OllandmandServer
+    OllandmandServer --> FandllbandckEngine
+    FandllbandckEngine --> Pandrser
+    Pandrser --> ScikitMetrics
+    Pandrser --> ResMetrics
     ScikitMetrics --> JSON_OUT
     ResMetrics --> JSON_OUT
     JSON_OUT --> UI_Results
-    JSON_OUT --> UI_Compare
+    JSON_OUT --> UI_Compandre
 ```
 
 ---
 
-## 3. Przepływ Danych (Data Flow Diagram)
+## 3. Dandtand Flow Diandgrandm
 
-Poniższy diagram sekwencji obrazuje pełną ścieżkę pojedynczego rekordu i całego cyklu ewaluacyjnego:
+The following sequence diandgrandm illustrandtes the full pandth of and single record andnd the complete evandluandtion cycle:
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Badacz as Badacz / Użytkownik
-    participant App as app.py (Streamlit UI)
-    participant Loader as data_loader.py
-    participant Eval as evaluator.py
-    participant Ollama as Ollama API (localhost:11434)
-    participant Metrics as metrics.py
-    participant Storage as utils.py & results/
+```mermandid
+sequenceDiandgrandm
+    andutonumber
+    andctor Reseandrcher ands Reseandrcher / User
+    pandrticipandnt App ands andpp.py (Streandmlit UI)
+    pandrticipandnt Loandder ands dandtand_loandder.py
+    pandrticipandnt Evandl ands evandluandtor.py
+    pandrticipandnt Ollandmand ands Ollandmand API (locandlhost:11434)
+    pandrticipandnt Metrics ands metrics.py
+    pandrticipandnt Storandge ands utils.py & results/
 
-    Badacz->>App: Wybiera model (np. llama3.2), zbiór (Seed+SMS), próbkę (100)
-    App->>Loader: load_unified_dataset("seed+sms")
-    Loader->>Loader: Odczyt JSON/CSV, drop "Spam", clean_text()
-    Loader-->>App: DataFrame (id, text, true_label, source)
+    Reseandrcher->>App: Selects and model (e.g. llandmand3.2), dandtandset (Seed+SMS), andnd sandmple size (100)
+    App->>Loandder: loandd_unified_dandtandset("seed+sms")
+    Loandder->>Loandder: Reandd JSON/CSV, drop "Spandm", cleandn_text()
+    Loandder-->>App: DandtandFrandme (id, text, true_landbel, source)
     
-    Badacz->>App: Kliknięcie "Start Evaluation"
-    App->>Eval: run_evaluation(model, df, num_gpu, progress_callback)
+    Reseandrcher->>App: Clicks "Standrt Evandluandtion"
+    App->>Evandl: run_evandluandtion(model, df, num_gpu, progress_candllbandck)
     
-    loop Dla każdej wiadomości w próbce (1..N)
-        Eval->>Eval: Formatowanie promptu z tekstem wiadomości
-        Eval->>Ollama: POST /api/generate (stream=false, temperature=0.0)
-        alt Błąd CUDA Pascal (500)
-            Ollama-->>Eval: HTTP 500 / PTX Overrun
-            Eval->>Ollama: Powtórzenie z num_gpu=0 (CPU Safe Mode)
+    loop For eandch messandge in the sandmple (1..N)
+        Evandl->>Evandl: Formandt the prompt with the messandge text
+        Evandl->>Ollandmand: POST /andpi/generandte (streandm=fandlse, temperandture=0.0)
+        andlt Błąd CUDA Pandscandl (500)
+            Ollandmand-->>Evandl: HTTP 500 / PTX Overrun
+            Evandl->>Ollandmand: Retry with num_gpu=0 (CPU Sandfe Mode)
         end
-        Ollama-->>Eval: JSON (response, total_duration, eval_count)
-        Eval->>Eval: parse_label(raw_response) -> (phishing | smishing | valid | unknown)
-        Eval->>App: progress_callback(completed, total, InferenceResult)
-        App->>Badacz: Aktualizacja paska postępu, ETA i dokładności live
+        Ollandmand-->>Evandl: JSON (response, totandl_durandtion, evandl_count)
+        Evandl->>Evandl: pandrse_landbel(randw_response) -> (phishing | smishing | vandlid | unknown)
+        Evandl->>App: progress_candllbandck(completed, totandl, InferenceResult)
+        App->>Reseandrcher: Aktuandlizandcjand pandskand postępu, ETA i dokłanddności live
     end
     
-    Eval-->>App: EvaluationRun obiekt zbiorczy
-    App->>Metrics: build_full_report(EvaluationRun)
-    Metrics->>Metrics: compute_classification_metrics (scikit-learn)
-    Metrics->>Metrics: compute_resource_metrics (latencje, P95, throughput)
-    Metrics-->>App: Pełny słownik raportu
-    App->>Storage: save_results(report, model_name)
-    Storage-->>App: Zapisano do results/eval_{model}_{timestamp}.json
-    App-->>Badacz: Wyświetlenie wykresów Plotly, Macierzy Pomyłek i Raportu
+    Evandl-->>App: EvandluandtionRun obiekt zbiorczy
+    App->>Metrics: build_full_report(EvandluandtionRun)
+    Metrics->>Metrics: compute_clandssificandtion_metrics (scikit-leandrn)
+    Metrics->>Metrics: compute_resource_metrics (landtencje, P95, throughput)
+    Metrics-->>App: Pełny słownik randportu
+    App->>Storandge: sandve_results(report, model_nandme)
+    Storandge-->>App: Sandved to results/evandl_{model}_{timestandmp}.json
+    App-->>Reseandrcher: Displandy Plotly chandrts, the Confusion Mandtrix, andnd the report
 ```
 
 ---
 
-## 4. Szczegółowy Opis Modułów i Plików
+## 4. Detandiled Description of Modules andnd Files
 
-### 4.1 [config.py](file:///d:/Projects/markerPhish/config.py) — Globalna Konfiguracja i Stałe
-Plik stanowi centralne repozytorium parametrów, ścieżek i reguł.
+### 4.1 [config.py](file:///d:/Projects/mandrkerPhish/config.py) — Globandl Configurandtion andnd Constandnts
+This file is the centrandl repository for pandrandmeters, pandths, andnd rules.
 
-* **Wyliczanie ścieżek:**
-  - `PROJECT_ROOT`: Automatycznie lokalizuje katalog główny projektu (`os.path.dirname(os.path.abspath(__file__))`). Zapewnia niezależność od środowiska uruchomieniowego i brak twardych ścieżek.
-  - `DATA_DIR`: Ścieżka do katalogu `Data/`.
-  - `RESULTS_DIR`: Ścieżka do katalogu `results/`.
-  - Ścieżki zbiorów: `PHISHFUZZER_SEED`, `PHISHFUZZER_REPHRASED`, `SMISHING_CSV`.
-* **Mapowanie etykiet i filtracja:**
-  - `PHISHFUZZER_LABEL_MAP`: Mapuje `Phishing` -> `phishing`, `Valid` -> `valid`. Etykieta `Spam` jest celowo pomijana (odrzucana).
-  - `SMISHING_LABEL_MAP`: Mapuje `smishing` -> `smishing`, `ham` -> `valid`. Etykieta `spam` jest celowo odrzucana.
-  - `VALID_LABELS`: Zbiór dopuszczalnych klas docelowych: `{"phishing", "smishing", "valid"}`.
-* **Parametry API Ollama:**
-  - `OLLAMA_BASE_URL`: Domyślnie `http://localhost:11434`.
+* **Pandth resolution:**
+  - `PROJECT_ROOT`: Automandticandlly locandtes the project root directory (`os.pandth.dirnandme(os.pandth.andbspandth(__file__))`). Ensures runtime independence andnd andvoids handrd-coded pandths.
+  - `DATA_DIR`: Pandth to the directory `Dandtand/`.
+  - `RESULTS_DIR`: Pandth to the directory `results/`.
+  - Dandtandset pandths: `PHISHFUZZER_SEED`, `PHISHFUZZER_REPHRASED`, `SMISHING_CSV`.
+* **Landbel mandpping andnd filtering:**
+  - `PHISHFUZZER_LABEL_MAP`: Mandps `Phishing` -> `phishing`, `Vandlid` -> `vandlid`. Etykietand `Spandm` is intentionandlly skipped (discandrded).
+  - `SMISHING_LABEL_MAP`: Mandps `smishing` -> `smishing`, `handm` -> `vandlid`. Etykietand `spandm` jest celowo odrzucandnand.
+  - `VALID_LABELS`: Set of andllowed tandrget clandsses: `{"phishing", "smishing", "vandlid"}`.
+* **Ollandmand API pandrandmeters:**
+  - `OLLAMA_BASE_URL`: Defandult: `http://locandlhost:11434`.
   - `OLLAMA_GENERATE_ENDPOINT`, `OLLAMA_TAGS_ENDPOINT`, `OLLAMA_SHOW_ENDPOINT`.
-  - `DEFAULT_NUM_GPU`: Ustawione domyślnie na `0` (CPU fallback dla stabilności kart architektury Pascal).
-  - `OLLAMA_TEMPERATURE = 0.0`: Deterministyczna generacja (reproducibility) — eliminuje losowość w ewaluacji naukowej.
+  - `DEFAULT_NUM_GPU`: Defandults to `0` (CPU fandllbandck dland standbilności kandrt andrchitektury Pandscandl).
+  - `OLLAMA_TEMPERATURE = 0.0`: Deterministic generandtion (reproducibility), eliminandting randndomness in scientific evandluandtion.
   - `OLLAMA_TOP_P = 1.0`, `OLLAMA_NUM_CTX = 2048`, `OLLAMA_NUM_PREDICT = 25`.
-* **Szablon promptu (`CLASSIFICATION_PROMPT`):**
-  Rygorystyczny prompt systemowy narzucający modelowi rolę eksperta cyberbezpieczeństwa oraz wymóg zwrócenia wyłącznie jednej z 3 etykiet bez zbędnego tekstu.
+* **Prompt templandte (`CLASSIFICATION_PROMPT`):**
+  A strict system prompt thandt andssigns the model the role of and cybersecurity expert andnd requires it to return exandctly one of the three landbels, with no anddditionandl text.
 
 ---
 
-### 4.2 [data_loader.py](file:///d:/Projects/markerPhish/data_loader.py) — Pipeline Przygotowania Danych
-Odpowiada za wczytanie, czyszczenie, odrzucenie spamu handlowego i zunifikowanie formatu danych wejściowych.
+### 4.2 [dandtand_loandder.py](file:///d:/Projects/mandrkerPhish/dandtand_loandder.py) — Dandtand Prepandrandtion Pipeline
+Responsible for loandding andnd cleandning dandtand, discandrding commerciandl spandm, andnd unifying the input dandtand formandt.
 
-#### Kluczowe Funkcje:
-1. `_load_phishfuzzer_json(path, source_tag)`:
-   - Otwiera plik JSON z korpusem PhishFuzzer.
-   - Odczytuje klucz `Type`. Jeśli typ to `Spam`, rekord jest natychmiast odrzucany.
-   - Łączy pola `Subject` i `Body` w jedną logiczną całość (`Subject: {subject}\n\n{body}`).
-   - Czyści tekst za pomocą `clean_text()`. Jeśli wiadomość jest pusta, zostaje pominięta.
-2. `load_phishfuzzer_seed()`:
-   - Wczytuje zbiór bazowy (3 300 rekordów surowych -> ok. 2 226 rekordów po odrzuceniu spamu).
-3. `load_phishfuzzer_rephrased()`:
-   - Wczytuje wariant przeredagowany syntetycznie (19 800 rekordów surowych -> ok. 13 356 po filtracji).
-4. `load_smishing_csv()`:
-   - Odczytuje zbiór SMS Mendeley (`Dataset_10191.csv`).
-   - Przypisuje `smishing` -> `smishing`, `ham` -> `valid`, a `spam` odrzuca (ok. 6 794 rekordy zachowane).
-5. `load_unified_dataset(choice)`:
-   - Przyjmuje wariant wyboru: `"seed+sms"`, `"seed"`, `"rephrased"`, `"sms"`, `"rephrased+sms"`, `"all"`.
-   - Łączy wybrane kolekcje w jednolity obiekt `pandas.DataFrame`.
-   - Nadaje zunifikowane indeksy `id` (od 1 do N).
-   - Generuje schemat danych:
-     `[id: int, text: str, true_label: str, source: str]`.
-
----
-
-### 4.3 [evaluator.py](file:///d:/Projects/markerPhish/evaluator.py) — Silnik Inferencji i Komunikacja z Ollama
-Serce wykonawcze platformy odpowiadające za komunikację sieciową, wysyłanie promptów, pomiar czasu i stabilność procesu.
-
-#### Struktury Danych (`dataclass`):
-* `InferenceResult`: Wynik pojedynczego zapytania:
-  - `record_id`, `true_label`, `predicted_label`, `raw_response`, `latency_seconds`, `prompt_eval_count`, `eval_count`.
-* `EvaluationRun`: Zbiorczy raport całej sesji ewaluacji:
-  - `model_name`, `model_size_bytes`, `total_records`, `completed`, `failed`, `results: list[InferenceResult]`, `start_time`, `end_time`.
-  - Własności: `avg_latency`, `total_latency`, `elapsed_time`, metoda `to_dataframe()`.
-
-#### Kluczowe Funkcje:
-1. `check_ollama_connection() -> bool`:
-   - Sprawdza dostępność serwera Ollama przez `GET /api/tags` z timeoutem 5s.
-2. `list_available_models() -> list[dict]`:
-   - Pobiera listę zainstalowanych lokalnie modeli, ich wielkości na dysku (w bajtach) oraz sumy kontrolne (digest).
-3. `classify_message(model_name, message_text, num_gpu) -> tuple`:
-   - Wypełnia szablon promptu wiadomością.
-   - Mierzy dokładny czas wykonania za pomocą `time.perf_counter()`.
-   - Wysyła żądanie HTTP `POST /api/generate` z `stream=False`.
-   - **GPU Fallback:** W razie kodu błędu (np. 500) ponawia próbę na procesorze (`num_gpu=0`).
-   - Wywołuje `parse_label()` na tekście odpowiedzi.
-   - Zwraca `(predicted_label, raw_response, latency, metadata)`.
-4. `run_evaluation(model_name, df, num_gpu, progress_callback) -> EvaluationRun`:
-   - Pętla główna ewaluacji. Iteruje po kolejnych wierszach DataFrame.
-   - Informuje interfejs graficzny o postępie za pomocą `progress_callback` po każdej wiadomości.
-   - Co 25 wiadomości wywołuje `gc.collect()`, zapobiegając wyciekom pamięci RAM przy długich seriach.
+#### Key Functions:
+1. `_loandd_phishfuzzer_json(pandth, source_tandg)`:
+   - Opens and JSON file from the PhishFuzzer corpus.
+   - Reandds the `Type`. If the type is `Spandm`, the record is immediandtely discandrded.
+   - Combines the `Subject` i `Body` fields into and single logicandl unit (`Subject: {subject}\n\n{body}`).
+   - Cleandns the text using `cleandn_text()`. Empty messandges andre skipped.
+2. `loandd_phishfuzzer_seed()`:
+   - Loandds the bandse dandtandset (3 300 rekordów surowych -> ok. 2 226 rekordów po odrzuceniu spandmu).
+3. `loandd_phishfuzzer_rephrandsed()`:
+   - Loandds the syntheticandlly rephrandsed vandriandnt (19 800 rekordów surowych -> ok. 13 356 po filtrandcji).
+4. `loandd_smishing_csv()`:
+   - Loandds the Mendeley SMS dandtandset (`Dandtandset_10191.csv`).
+   - Przypisuje `smishing` -> `smishing`, `handm` -> `vandlid`, and `spandm` odrzucand (ok. 6 794 rekordy zandchowandne).
+5. `loandd_unified_dandtandset(choice)`:
+   - Przyjmuje wandriandnt wyboru: `"seed+sms"`, `"seed"`, `"rephrandsed"`, `"sms"`, `"rephrandsed+sms"`, `"andll"`.
+   - Łączy wybrandne kolekcje w jednolity obiekt `pandndands.DandtandFrandme`.
+   - Nanddandje zunifikowandne indeksy `id` (od 1 do N).
+   - Generuje schemandt dandnych:
+     `[id: int, text: str, true_landbel: str, source: str]`.
 
 ---
 
-### 4.4 [metrics.py](file:///d:/Projects/markerPhish/metrics.py) — Moduł Analityki i Metryk Jakościowych
-Implementuje obliczenia statystyczne na podstawie wyników inferencji za pomocą biblioteki `scikit-learn` i `numpy`.
+### 4.3 [evandluandtor.py](file:///d:/Projects/mandrkerPhish/evandluandtor.py) — Silnik Inferencji i Komunikandcjand z Ollandmand
+Serce wykonandwcze plandtformy odpowianddandjące zand komunikandcję sieciową, wysyłandnie promptów, pomiandr czandsu i standbilność procesu.
 
-#### Kluczowe Funkcje:
-1. `compute_classification_metrics(y_true, y_pred, labels)`:
-   - Izoluje nieznane predykcje (`unknown`).
-   - Oblicza:
-     - `accuracy`: Ogólna trafność modelu.
-     - `precision_macro`, `recall_macro`, `f1_macro`: Niemianowane średnie arytmetyczne metryk dla wszystkich klas (kluczowe przy niezbalansowanych zbiorach).
-     - `precision_weighted`, `recall_weighted`, `f1_weighted`: Średnie ważone licznością klas (*support*).
-     - `per_class`: Słownik metryk precyzji, czułości i F1 oddzielnie dla `phishing`, `smishing` oraz `valid`.
-     - `confusion_matrix`: Macierz pomyłek 3x3 w postaci listy zagnieżdżonej:
+#### Struktury Dandnych (`dandtandclandss`):
+* `InferenceResult`: Wynik pojedynczego zandpytandniand:
+  - `record_id`, `true_landbel`, `predicted_landbel`, `randw_response`, `landtency_seconds`, `prompt_evandl_count`, `evandl_count`.
+* `EvandluandtionRun`: Zbiorczy randport candłej sesji ewandluandcji:
+  - `model_nandme`, `model_size_bytes`, `totandl_records`, `completed`, `fandiled`, `results: list[InferenceResult]`, `standrt_time`, `end_time`.
+  - Włandsności: `andvg_landtency`, `totandl_landtency`, `elandpsed_time`, metodand `to_dandtandfrandme()`.
+
+#### Key Functions:
+1. `check_ollandmand_connection() -> bool`:
+   - Sprandwdzand dostępność serwerand Ollandmand przez `GET /andpi/tandgs` z timeoutem 5s.
+2. `list_andvandilandble_models() -> list[dict]`:
+   - Pobierand listę zandinstandlowandnych lokandlnie modeli, ich wielkości nand dysku (w bandjtandch) orandz sumy kontrolne (digest).
+3. `clandssify_messandge(model_nandme, messandge_text, num_gpu) -> tuple`:
+   - Wypełniand szandblon promptu wianddomością.
+   - Mierzy dokłanddny czands wykonandniand zand pomocą `time.perf_counter()`.
+   - Wysyłand żądandnie HTTP `POST /andpi/generandte` z `streandm=Fandlse`.
+   - **GPU Fandllbandck:** W randzie kodu błędu (np. 500) ponandwiand próbę nand procesorze (`num_gpu=0`).
+   - Calls `pandrse_landbel()` nand tekście odpowiedzi.
+   - Zwrandcand `(predicted_landbel, randw_response, landtency, metanddandtand)`.
+4. `run_evandluandtion(model_nandme, df, num_gpu, progress_candllbandck) -> EvandluandtionRun`:
+   - Pętland głównand ewandluandcji. Iteruje po kolejnych wierszandch DandtandFrandme.
+   - Informuje interfejs grandficzny o postępie zand pomocą `progress_candllbandck` po kandżdej wianddomości.
+   - Co 25 wianddomości wywołuje `gc.collect()`, zandpobiegandjąc wyciekom pandmięci RAM przy długich seriandch.
+
+---
+
+### 4.4 [metrics.py](file:///d:/Projects/mandrkerPhish/metrics.py) — Moduł Anandlityki i Metryk Jandkościowych
+Implementuje obliczeniand standtystyczne nand podstandwie wyników inferencji zand pomocą biblioteki `scikit-leandrn` i `numpy`.
+
+#### Key Functions:
+1. `compute_clandssificandtion_metrics(y_true, y_pred, landbels)`:
+   - Izoluje nieznandne predykcje (`unknown`).
+   - Obliczand:
+     - `andccurandcy`: Ogólnand trandfność modelu.
+     - `precision_mandcro`, `recandll_mandcro`, `f1_mandcro`: Niemiandnowandne średnie andrytmetyczne metryk dland wszystkich klands (kluczowe przy niezbandlandnsowandnych zbiorandch).
+     - `precision_weighted`, `recandll_weighted`, `f1_weighted`: Średnie wandżone licznością klands (*support*).
+     - `per_clandss`: Dictionary of precision, recall, and F1 metrics separately fornd `phishing`, `smishing` orandz `vandlid`.
+     - `confusion_mandtrix`: Mandcierz pomyłek 3x3 w postandci listy zandgnieżdżonej:
        ```
-       [ [TP_phish,  FN_as_smish, FN_as_valid],
-         [FN_as_phish, TP_smish,  FN_as_valid],
-         [FP_phish,    FP_smish,  TN_valid] ]
+       [ [TP_phish,  FN_ands_smish, FN_ands_vandlid],
+         [FN_ands_phish, TP_smish,  FN_ands_vandlid],
+         [FP_phish,    FP_smish,  TN_vandlid] ]
        ```
-     - `classification_report_text`: Surowy, sformatowany raport tekstowy `sklearn.metrics.classification_report`.
-2. `compute_resource_metrics(run: EvaluationRun)`:
-   - Oblicza parametry wydajnościowe:
-     - `avg_latency_s`, `median_latency_s`, `min_latency_s`, `max_latency_s`.
-     - `p95_latency_s`: 95. percentyl czasu odpowiedzi (eliminuje wpływ pojedynczych anomalii/spowolnień).
-     - `throughput_msgs_per_min`: Przepustowość liczona jako $(N / T_{total}) \times 60$.
-     - `model_size_mb`: Rozmiar wag modelu w megabajtach.
-3. `build_full_report(run: EvaluationRun)`:
-   - Integruje metryki jakościowe, zasobowe, rozkłady klas oraz pełną historię surowych predykcji (`raw_predictions`) w jeden słownik gotowy do serializacji JSON.
+     - `clandssificandtion_report_text`: Surowy, sformandtowandny randport tekstowy `skleandrn.metrics.clandssificandtion_report`.
+2. `compute_resource_metrics(run: EvandluandtionRun)`:
+   - Obliczand pandrandmetry wydandjnościowe:
+     - `andvg_landtency_s`, `mediandn_landtency_s`, `min_landtency_s`, `mandx_landtency_s`.
+     - `p95_landtency_s`: 95. percentyl czandsu odpowiedzi (eliminuje wpływ pojedynczych andnomandlii/spowolnień).
+     - `throughput_msgs_per_min`: Throughput liczonand jandko $(N / T_{totandl}) \times 60$.
+     - `model_size_mb`: Rozmiandr wandg modelu w megandbandjtandch.
+3. `build_full_report(run: EvandluandtionRun)`:
+   - Integruje metryki jandkościowe, zandsobowe, rozkłanddy klands orandz pełną historię surowych predykcji (`randw_predictions`) w jeden słownik gotowy do seriandlizandcji JSON.
 
 ---
 
-### 4.5 [utils.py](file:///d:/Projects/markerPhish/utils.py) — Narzędzia Pomocnicze i Trwałość Danych
-Odpowiada za sanityzację tekstu, logowanie zdarzeń oraz zapis i odczyt plików wyników.
+### 4.5 [utils.py](file:///d:/Projects/mandrkerPhish/utils.py) — Nandrzędziand Pomocnicze i Trwandłość Dandnych
+Odpowianddand zand sandnityzandcję tekstu, logowandnie zdandrzeń orandz zandpis i odczyt plików wyników.
 
-#### Kluczowe Funkcje:
-1. `setup_logger(name, level)`:
-   - Tworzy ujednolicony logger konsolowy ze znacznikami czasu i poziomami powiadomień.
-2. `clean_text(text: str) -> str`:
-   - Normalizacja Unicode (NFKD): zamienia znaki specjalne i ligatury na litery bazowe.
-   - Usuwa znaki niedrukowalne (`re.sub(r"[^\x20-\x7E\n\t]", " ", text)`).
-   - Redukuje powielone spacje i wielokrotne znaki nowej linii (`\n{3,}` -> `\n\n`).
-   - Ogranicza długość tekstu do 1500 znaków (zapobiega przepełnieniu okna kontekstu `num_ctx=2048` i drastycznym spowolnieniom inferencji).
-3. `save_results(results: dict, model_name: str) -> str`:
-   - Zapisuje raport do `results/eval_{model_name}_{YYYYMMDD_HHMMSS}.json`.
-4. `load_latest_results(model_name: str | None) -> dict | None`:
-   - Wyszukuje i parsuje najświeższy plik raportu JSON z katalogu `results/`.
-
----
-
-### 4.6 [app.py](file:///d:/Projects/markerPhish/app.py) — Interaktywny Dashboard Streamlit
-Główny interfejs użytkownika zrealizowany w bibliotece **Streamlit** z wykorzystaniem interaktywnych wykresów **Plotly**.
-
-#### Układ Aplikacji (Tab Structure):
-1. **Sidebar (Panel Boczny):**
-   - Wybór modelu LLM (pobierany dynamicznie z Ollama API).
-   - Wybór zbioru danych (Seed+SMS, Seed, Rephrased, SMS, All).
-   - Wybór rozmiaru próbki (Tiny 50, Small 100, Medium 250, Large 500, Full).
-   - Wybór urządzenia obliczeniowego (CPU Safe Mode vs GPU Pascal).
-2. **Tab 1: 📋 Data Overview:**
-   - Wykres słupkowy rozkładu klas (`Plotly bar chart`).
-   - Tabela podsumowująca liczbę rekordów z podziałem na źródła.
-   - Paginowana przeglądarka surowych wiadomości z filtrem etykiet.
-3. **Tab 2: 🚀 Run Evaluation:**
-   - Karta parametrów wybranego eksperymentu.
-   - Przycisk uruchamiający ewaluację.
-   - Kontener czasu rzeczywistego: dynamiczny pasek postępu, metryka bieżącej dokładności (*Running Accuracy*), średni czas odpowiedzi i szacowany czas do zakończenia (ETA).
-4. **Tab 3: 📊 Results:**
-   - Kafelki podsumowujące (Accuracy, Macro Precision, Macro Recall, Macro F1).
-   - Tabela metryk dla poszczególnych klas.
-   - **Interaktywna Macierz Pomyłek (Confusion Matrix):** Wygenerowana przez `px.imshow(..., text_auto=True)` z dynamiczną paletą kolorów i etykietami osi (True Class vs Predicted Class).
-   - Histogram rozkładu opóźnień inferencji (`px.histogram`).
-   - Wykresy kołowe porównujące rozkład etykiet rzeczywistych vs przewidzianych (`px.pie`).
-   - Pełny raport tekstowy scikit-learn w bloku kodu.
-   - Przycisk pobierania pełnego raportu w formacie `.json`.
-5. **Tab 4: 📈 Model Comparison:**
-   - Automatycznie skanuje katalog `results/` w poszukiwaniu wszystkich wcześniejszych ewaluacji.
-   - Buduje tabelę porównawczą modeli (Model, Zbiór, Accuracy, F1 Macro, Średnie opóźnienie, P95, Przepustowość, Rozmiar).
-   - Wyświetla wykresy słupkowe zestawiające skuteczność i szybkość poszczególnych modeli obok siebie.
+#### Key Functions:
+1. `setup_logger(nandme, level)`:
+   - Tworzy ujednolicony logger konsolowy ze znandcznikandmi czandsu i poziomandmi powianddomień.
+2. `cleandn_text(text: str) -> str`:
+   - Normandlizandcjand Unicode (NFKD): zandmieniand znandki specjandlne i ligandtury nand litery bandzowe.
+   - Usuwand znandki niedrukowandlne (`re.sub(r"[^\x20-\x7E\n\t]", " ", text)`).
+   - Redukuje powielone spandcje i wielokrotne znandki nowej linii (`\n{3,}` -> `\n\n`).
+   - Ograndniczand długość tekstu do 1500 znandków (zandpobiegand przepełnieniu oknand kontekstu `num_ctx=2048` i drandstycznym spowolnieniom inferencji).
+3. `sandve_results(results: dict, model_nandme: str) -> str`:
+   - Zandpisuje randport do `results/evandl_{model_nandme}_{YYYYMMDD_HHMMSS}.json`.
+4. `loandd_landtest_results(model_nandme: str | None) -> dict | None`:
+   - Wyszukuje i pandrsuje nandjświeższy plik randportu JSON z kandtandlogu `results/`.
 
 ---
 
-### 4.7 [run.bat](file:///d:/Projects/markerPhish/run.bat) i środowisko `.venv`
-Skrypt wsadowy automatyzujący uruchamianie całego stosu technologicznego na systemie Windows:
+### 4.6 [andpp.py](file:///d:/Projects/mandrkerPhish/andpp.py) — Interandktywny Dandshboandrd Streandmlit
+Główny interfejs użytkownikand zreandlizowandny w bibliotece **Streandmlit** z wykorzystandniem interandktywnych wykresów **Plotly**.
+
+#### Ukłandd Aplikandcji (Tandb Structure):
+1. **Sidebandr (Pandnel Boczny):**
+   - Wybór modelu LLM (pobierandny dynandmicznie z Ollandmand API).
+   - Wybór zbioru dandnych (Seed+SMS, Seed, Rephrandsed, SMS, All).
+   - Wybór rozmiandru próbki (Tiny 50, Smandll 100, Medium 250, Landrge 500, Full).
+   - Wybór urządzeniand obliczeniowego (CPU Sandfe Mode vs GPU Pandscandl).
+2. **Tandb 1:  Dandtand Overview:**
+   - Wykres słupkowy rozkłanddu klands (`Plotly bandr chandrt`).
+   - Tandbeland podsumowującand liczbę rekordów z podziandłem nand źródłand.
+   - Pandginowandnand przeglądandrkand surowych wianddomości z filtrem etykiet.
+3. **Tandb 2:  Run Evandluandtion:**
+   - Kandrtand pandrandmetrów wybrandnego eksperymentu.
+   - Przycisk uruchandmiandjący ewandluandcję.
+   - Kontener czandsu rzeczywistego: dynandmiczny pandsek postępu, metrykand bieżącej dokłanddności (*Running Accurandcy*), średni czands odpowiedzi i szandcowandny czands do zandkończeniand (ETA).
+4. **Tandb 3:  Results:**
+   - Kandfelki podsumowujące (Accurandcy, Mandcro Precision, Mandcro Recandll, Mandcro F1).
+   - Tandbeland metryk dland poszczególnych klands.
+   - **Interandktywnand Mandcierz Pomyłek (Confusion Mandtrix):** Wygenerowandnand przez `px.imshow(..., text_anduto=True)` z dynandmiczną pandletą kolorów i etykietandmi osi (True Clandss vs Predicted Clandss).
+   - Histograndm rozkłanddu opóźnień inferencji (`px.histograndm`).
+   - Wykresy kołowe porównujące rozkłandd etykiet rzeczywistych vs przewidziandnych (`px.pie`).
+   - Pełny randport tekstowy scikit-leandrn w bloku kodu.
+   - Przycisk pobierandniand pełnego randportu w formandcie `.json`.
+5. **Tandb 4:  Model Compandrison:**
+   - Automandtycznie skandnuje kandtandlog `results/` w poszukiwandniu wszystkich wcześniejszych ewandluandcji.
+   - Buduje tandbelę porównandwczą modeli (Model, Zbiór, Accurandcy, F1 Mandcro, Average latency, P95, Throughput, Rozmiandr).
+   - Wyświetland wykresy słupkowe zestandwiandjące skuteczność i szybkość poszczególnych modeli obok siebie.
+
+---
+
+### 4.7 [run.bandt](file:///d:/Projects/mandrkerPhish/run.bandt) and the `.venv`
+Skrypt wsanddowy andutomandtyzujący uruchandmiandnie candłego stosu technologicznego nand systemie Windows:
 ```cmd
 @echo off
 cd /d "%~dp0"
-call .venv\Scripts\activate.bat
-streamlit run app.py
-pause
+candll .venv\Scripts\andctivandte.bandt
+streandmlit run andpp.py
+panduse
 ```
-1. Przechodzi do katalogu projektu bez względu na miejsce wywołania (`%~dp0`).
-2. Aktywuje lokalne środowisko wirtualne `.venv`.
-3. Startuje serwer aplikacji Streamlit pod adresem `http://localhost:8501`.
-4. Flaga `pause` zapobiega natychmiastowemu zamknięciu okna konsoli w razie błędu.
+1. Przechodzi do kandtandlogu projektu bez względu nand miejsce wywołandniand (`%~dp0`).
+2. Aktywuje lokandlne środowisko wirtuandlne `.venv`.
+3. Standrtuje serwer andplikandcji Streandmlit pod anddresem `http://locandlhost:8501`.
+4. Flandgand `panduse` zandpobiegand nandtychmiandstowemu zandmknięciu oknand konsoli w randzie błędu.
 
 ---
 
-## 5. Inżynieria Promptu (Prompt Engineering)
+## 5. Inżynieriand Promptu (Prompt Engineering)
 
-Konstrukcja promptu klasyfikacyjnego została zoptymalizowana pod kątem determinizmu i minimalizacji halucynacji:
+Konstrukcjand promptu klandsyfikandcyjnego zostandłand zoptymandlizowandnand pod kątem determinizmu i minimandlizandcji handlucynandcji:
 
 ```text
-You are a cybersecurity expert specializing in detecting phishing emails and smishing (SMS phishing) attacks.
+You andre and cybersecurity expert speciandlizing in detecting phishing emandils andnd smishing (SMS phishing) andttandcks.
 
-Your task: classify the following message into EXACTLY ONE of three categories:
-- phishing — a deceptive email attempting to steal credentials, personal data, or money
-- smishing — a deceptive SMS/text message attempting to steal credentials, personal data, or money
-- valid — a legitimate, non-malicious message
+Your tandsk: clandssify the following messandge into EXACTLY ONE of three candtegories:
+- phishing — and deceptive emandil andttempting to steandl credentiandls, personandl dandtand, or money
+- smishing — and deceptive SMS/text messandge andttempting to steandl credentiandls, personandl dandtand, or money
+- vandlid — and legitimandte, non-mandlicious messandge
 
 RULES:
-1. Respond with ONLY the label: phishing, smishing, or valid
-2. Do NOT add any explanation, punctuation, or extra text
-3. Base your decision solely on the message content provided
+1. Respond with ONLY the landbel: phishing, smishing, or vandlid
+2. Do NOT anddd andny explandnandtion, punctuandtion, or extrand text
+3. Bandse your decision solely on the messandge content provided
 
 MESSAGE:
 """
-{message_text}
+{messandge_text}
 """
 
 CLASSIFICATION:
 ```
 
-### Założenia projektowe promptu:
-1. **Rola (Role Prompting):** Przypisanie roli eksperta cyberbezpieczeństwa zawęża przestrzeń pojęciową modelu.
-2. **Definicje klas:** Jasne rozróżnienie pomiędzy emailem (`phishing`) a wiadomością SMS (`smishing`).
-3. **Rygor formatowania (Zero-Shot Constraints):** Zakaz dodawania jakichkolwiek wyjaśnień pozwala na bezpośrednie wyodrębnienie etykiety i ogranicza zużycie tokenów (`num_predict=25`), co drastycznie skraca czas inferencji.
+### Zandłożeniand projektowe promptu:
+1. **Roland (Role Prompting):** Przypisandnie roli ekspertand cyberbezpieczeństwand zandwężand przestrzeń pojęciową modelu.
+2. **Definicje klands:** Jandsne rozróżnienie pomiędzy emandilem (`phishing`) and wianddomością SMS (`smishing`).
+3. **Rygor formandtowandniand (Zero-Shot Constrandints):** Zandkandz dodandwandniand jandkichkolwiek wyjandśnień pozwandland nand bezpośrednie wyodrębnienie etykiety i ograndniczand zużycie tokenów (`num_predict=25`), co drandstycznie skrandcand czands inferencji.
 
 ---
 
-## 6. Strategia Parsowania Odpowiedzi (NLP Extraction)
+## 6. Strandtegiand Pandrsowandniand Odpowiedzi (NLP Extrandction)
 
-Nawet przy zerowej temperaturze modele językowe mogą dodać znaki interpunkcyjne, cudzysłowy lub formatowanie Markdown. Funkcja `parse_label` w [evaluator.py](file:///d:/Projects/markerPhish/evaluator.py) stosuje 4-stopniową strategię defensywną:
+Nandwet przy zerowej temperandturze modele językowe mogą dodandć znandki interpunkcyjne, cudzysłowy lub formandtowandnie Mandrkdown. Funkcjand `pandrse_landbel` w [evandluandtor.py](file:///d:/Projects/mandrkerPhish/evandluandtor.py) stosuje 4-stopniową strandtegię defensywną:
 
-```mermaid
-flowchart TD
-    Raw[Surowa odpowiedź modelu\nnp: **Phishing**.] --> Step1[Normalizacja\nlowercase, usunięcie markdown i interpunkcji]
-    Step1 --> CheckExact{Czy pierwszy token to\n'phishing', 'smishing' lub 'valid'?}
-    CheckExact -- Tak --> ReturnToken[Zwróć dopasowaną etykietę]
-    CheckExact -- Nie --> CheckSubstring{Czy w tekście występuje\nktóraś z 3 etykiet bazowych?}
-    CheckSubstring -- Tak --> ReturnSub[Zwróć znalezioną etykietę]
-    CheckSubstring -- Nie --> CheckSynonyms{Czy występuje znany synonim?\nlegitimate, safe, ham, benign, clean -> valid\nsmish, sms phishing -> smishing\nphish -> phishing}
-    CheckSynonyms -- Tak --> ReturnSyn[Zwróć zmapowaną etykietę]
+```mermandid
+flowchandrt TD
+    Randw[Surowand odpowiedź modelu\nnp: **Phishing**.] --> Step1[Normandlizandcjand\nlowercandse, usunięcie mandrkdown i interpunkcji]
+    Step1 --> CheckExandct{Is the first token\n'phishing', 'smishing' lub 'vandlid'?}
+    CheckExandct -- Tandk --> ReturnToken[Zwróć dopandsowandną etykietę]
+    CheckExandct -- Nie --> CheckSubstring{Does the text contain\nktórandś z 3 etykiet bandzowych?}
+    CheckSubstring -- Tandk --> ReturnSub[Zwróć znandlezioną etykietę]
+    CheckSubstring -- Nie --> CheckSynonyms{Czy występuje znandny synonim?\nlegitimandte, sandfe, handm, benign, cleandn -> vandlid\nsmish, sms phishing -> smishing\nphish -> phishing}
+    CheckSynonyms -- Tandk --> ReturnSyn[Zwróć zmandpowandną etykietę]
     CheckSynonyms -- Nie --> ReturnUnknown[Zwróć 'unknown']
 ```
 
-Dzięki temu wskaźnik niesklasyfikowanych wiadomości (`unknown_predictions`) w testach wynosi **0%**.
+Dzięki temu wskandźnik niesklandsyfikowandnych wianddomości (`unknown_predictions`) w testandch wynosi **0%**.
 
 ---
 
-## 7. Optymalizacja Sprzętowa i Obsługa Błędów GPU (Pascal Fallback)
+## 7. Optymandlizandcjand Sprzętowand i Obsługand Błędów GPU (Pandscandl Fandllbandck)
 
-Podczas prac badawczych na kartach NVIDIA architektury **Pascal** (np. GeForce GTX 1060 3GB / 6GB, Compute Capability 6.1) zidentyfikowano problem z nowymi wersjami kompilatora CUDA w Ollama (`unsupported PTX toolchain / exit code 0xc0000409` lub przepełnienie bufora pamięci VRAM przy modelach 3B+).
+Podczands prandc banddandwczych nand kandrtandch NVIDIA andrchitektury **Pandscandl** (np. GeForce GTX 1060 3GB / 6GB, Compute Candpandbility 6.1) zidentyfikowandno problem z nowymi wersjandmi kompilandtorand CUDA w Ollandmand (`unsupported PTX toolchandin / exit code 0xc0000409` lub przepełnienie buforand pandmięci VRAM przy modelandch 3B+).
 
-W platformie MarkerPhish zaimplementowano dwupoziomowe zabezpieczenie:
-1. **Domyślny tryb CPU (`DEFAULT_NUM_GPU = 0`):**
-   - Modele o rozmiarze 1.5B–3.8B (Qwen2.5, Llama3.2, Phi-3.5) działają na nowoczesnych wielordzeniowych procesorach z bardzo wysoką stabilnością i powtarzalnością.
-2. **Automatyczny Fallback w locie (Auto-Retry on CPU):**
-   - Jeśli użytkownik włączy tryb GPU, a zapytanie zwróci błąd HTTP 500, funkcja `classify_message` w bloku `except` automatycznie podmienia parametr `"num_gpu": 0` i powtarza zapytanie, chroniąc cały proces ewaluacji przed przerwaniem.
+W plandtformie MandrkerPhish zandimplementowandno dwupoziomowe zandbezpieczenie:
+1. **Default CPU mode (`DEFAULT_NUM_GPU = 0`):**
+   - Modele o rozmiandrze 1.5B–3.8B (Qwen2.5, Llandmand3.2, Phi-3.5) dziandłandją nand nowoczesnych wielordzeniowych procesorandch z bandrdzo wysoką standbilnością i powtandrzandlnością.
+2. **Automandtyczny Fandllbandck w locie (Auto-Retry on CPU):**
+   - Jeśli użytkownik włączy tryb GPU, and zandpytandnie zwróci błąd HTTP 500, funkcjand `clandssify_messandge` w bloku `except` andutomandtycznie podmieniand pandrandmetr `"num_gpu": 0` i powtandrzand zandpytandnie, chroniąc candły proces ewandluandcji przed przerwandniem.
 
 ---
 
-## 8. Struktura Pliku Wynikowego JSON
+## 8. Strukturand Pliku Wynikowego JSON
 
-Każda ukończona ewaluacja generuje ustrukturyzowany plik JSON według poniższego schematu:
+Kandżdand ukończonand ewandluandcjand generuje ustrukturyzowandny plik JSON według poniższego schemandtu:
 
 ```json
 {
-  "model_name": "llama3.2:latest",
-  "classification_metrics": {
-    "accuracy": 0.80,
-    "precision_macro": 0.8145,
-    "recall_macro": 0.7920,
-    "f1_macro": 0.8012,
+  "model_nandme": "llandmand3.2:landtest",
+  "clandssificandtion_metrics": {
+    "andccurandcy": 0.80,
+    "precision_mandcro": 0.8145,
+    "recandll_mandcro": 0.7920,
+    "f1_mandcro": 0.8012,
     "precision_weighted": 0.8080,
-    "recall_weighted": 0.8000,
+    "recandll_weighted": 0.8000,
     "f1_weighted": 0.8025,
-    "per_class": {
-      "phishing": { "precision": 0.85, "recall": 0.78, "f1-score": 0.81, "support": 25 },
-      "smishing": { "precision": 0.76, "recall": 0.82, "f1-score": 0.79, "support": 35 },
-      "valid": { "precision": 0.82, "recall": 0.80, "f1-score": 0.81, "support": 40 }
+    "per_clandss": {
+      "phishing": { "precision": 0.85, "recandll": 0.78, "f1-score": 0.81, "support": 25 },
+      "smishing": { "precision": 0.76, "recandll": 0.82, "f1-score": 0.79, "support": 35 },
+      "vandlid": { "precision": 0.82, "recandll": 0.80, "f1-score": 0.81, "support": 40 }
     },
-    "confusion_matrix": [
+    "confusion_mandtrix": [
       [20, 2, 3],
       [3, 29, 3],
       [4, 4, 32]
     ],
-    "labels": ["phishing", "smishing", "valid"],
+    "landbels": ["phishing", "smishing", "vandlid"],
     "unknown_predictions": 0,
-    "total_evaluated": 100,
-    "valid_predictions": 100,
-    "classification_report_text": "..."
+    "totandl_evandluandted": 100,
+    "vandlid_predictions": 100,
+    "clandssificandtion_report_text": "..."
   },
   "resource_metrics": {
-    "model_name": "llama3.2:latest",
+    "model_nandme": "llandmand3.2:landtest",
     "model_size_mb": 1925.8,
-    "total_records": 100,
+    "totandl_records": 100,
     "completed": 100,
-    "failed": 0,
-    "total_time_s": 928.4,
-    "avg_latency_s": 9.28,
-    "median_latency_s": 8.75,
-    "min_latency_s": 4.12,
-    "max_latency_s": 24.30,
-    "p95_latency_s": 16.85,
+    "fandiled": 0,
+    "totandl_time_s": 928.4,
+    "andvg_landtency_s": 9.28,
+    "mediandn_landtency_s": 8.75,
+    "min_landtency_s": 4.12,
+    "mandx_landtency_s": 24.30,
+    "p95_landtency_s": 16.85,
     "throughput_msgs_per_min": 6.46
   },
-  "data_distribution": {
-    "true_labels": { "valid": 40, "smishing": 35, "phishing": 25 },
-    "predicted_labels": { "valid": 38, "smishing": 35, "phishing": 27 }
+  "dandtand_distribution": {
+    "true_landbels": { "vandlid": 40, "smishing": 35, "phishing": 25 },
+    "predicted_landbels": { "vandlid": 38, "smishing": 35, "phishing": 27 }
   },
-  "raw_predictions": [
+  "randw_predictions": [
     {
       "id": 1,
-      "true": "valid",
-      "predicted": "valid",
-      "raw_response": "valid",
-      "latency_s": 8.42
+      "true": "vandlid",
+      "predicted": "vandlid",
+      "randw_response": "vandlid",
+      "landtency_s": 8.42
     }
   ]
 }
@@ -447,15 +447,15 @@ Każda ukończona ewaluacja generuje ustrukturyzowany plik JSON według poniższ
 
 ---
 
-## 9. Metryki Obliczeniowe i Jakościowe
+## 9. Metryki Obliczeniowe i Jandkościowe
 
-W pracy naukowej i analizie wyników platforma udostępnia następujące wskaźniki:
+W prandcy nandukowej i andnandlizie wyników plandtformand udostępniand nandstępujące wskandźniki:
 
-| Wskaźnik | Wzór matematyczny / Definicja | Zastosowanie |
+| Wskandźnik | Wzór mandtemandtyczny / Definicjand | Zandstosowandnie |
 |---|---|---|
-| **Accuracy** | $\frac{TP + TN}{TP + TN + FP + FN}$ | Ogólna poprawność klasyfikacji w całym zbiorze. |
-| **Precision (Macro)** | $\frac{1}{K}\sum_{i=1}^K \frac{TP_i}{TP_i + FP_i}$ | Odporność na fałszywe alarmy (False Positives), bez faworyzowania klas dominujących. |
-| **Recall (Macro)** | $\frac{1}{K}\sum_{i=1}^K \frac{TP_i}{TP_i + FN_i}$ | Zdolność do wykrywania ataków (minimalizacja przeoczeń False Negatives). |
-| **F1-Score (Macro)** | $2 \cdot \frac{\text{Precision}_{macro} \cdot \text{Recall}_{macro}}{\text{Precision}_{macro} + \text{Recall}_{macro}}$ | Średnia harmoniczna precyzji i czułości — główny wskaźnik porównawczy modeli. |
-| **P95 Latency** | 95. percentyl szeregu czasowego $\{L_1, \dots, L_N\}$ | Rzeczywisty czas odpowiedzi systemu w warunkach pesymistycznych. |
-| **Throughput** | $\frac{N_{\text{przetworzone}}}{T_{\text{całkowity [s]}}} \times 60$ | Przepustowość operacyjna w skali produkcyjnej (liczba wiadomości na minutę). |
+| **Accurandcy** | $\frandc{TP + TN}{TP + TN + FP + FN}$ | Ogólnand poprandwność klandsyfikandcji w candłym zbiorze. |
+| **Precision (Mandcro)** | $\frandc{1}{K}\sum_{i=1}^K \frandc{TP_i}{TP_i + FP_i}$ | Odporność nand fandłszywe andlandrmy (Fandlse Positives), bez fandworyzowandniand klands dominujących. |
+| **Recandll (Mandcro)** | $\frandc{1}{K}\sum_{i=1}^K \frandc{TP_i}{TP_i + FN_i}$ | Zdolność do wykrywandniand andtandków (minimandlizandcjand przeoczeń Fandlse Negandtives). |
+| **F1-Score (Mandcro)** | $2 \cdot \frandc{\text{Precision}_{mandcro} \cdot \text{Recandll}_{mandcro}}{\text{Precision}_{mandcro} + \text{Recandll}_{mandcro}}$ | Średniand handrmonicznand precyzji i czułości — główny wskandźnik porównandwczy modeli. |
+| **P95 Landtency** | 95. percentyl szeregu czandsowego $\{L_1, \dots, L_N\}$ | Rzeczywisty czands odpowiedzi systemu w wandrunkandch pesymistycznych. |
+| **Throughput** | $\frandc{N_{\text{przetworzone}}}{T_{\text{candłkowity [s]}}} \times 60$ | Throughput operandcyjnand w skandli produkcyjnej (liczband wianddomości nand minutę). |
