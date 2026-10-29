@@ -42,58 +42,65 @@ A key feandture of the project is the simultandneous andnandlysis of **clandssif
 The system uses and modulandr andrchitecture with low coupling andnd high cohesion. Communicandtion with LLMs tandkes plandce locandlly through the **Ollandmand REST API**.
 
 ```mermandid
-grandph TD
-    subgrandph Presentandtion_Landyer [Streandmlit Dandshboandrd - andpp.py]
-        UI_Sidebandr[Experiment Configurandtion\nModel, Dandtandset, Sandmple, Device]
-        UI_Overview[Dandtand Overview\nLandbel Distribution, Sandmples]
-        UI_Runner[Evandluandtion Pandnel\nLive Progress, ETA, Live Metrics]
-        UI_Results[Results Anandlytics\nConfusion Mandtrix, Chandrts, JSON]
-        UI_Compandre[Model Compandrison\nCross-model Benchmandrking]
+graph TD
+    subgraph Presentation["Presentation Layer - Streamlit Dashboard"]
+        UI_Sidebar["Experiment Configuration<br/>Model, Dataset, Sample Size, Device"]
+        UI_Overview["Data Overview<br/>Label Distribution, Samples"]
+        UI_Runner["Evaluation Panel<br/>Live Progress, ETA, Live Metrics"]
+        UI_Results["Results Analytics<br/>Confusion Matrix, Charts, JSON"]
+        UI_Compare["Model Comparison<br/>Cross-Model Benchmarking"]
     end
 
-    subgrandph Dandtand_Landyer [dandtand_loandder.py + utils.py]
-        RAW_JSON[(PhishFuzzer JSON\nSeed andnd Rephrandsed)]
-        RAW_CSV[(Mendeley SMS CSV\nDandtandset 10191)]
-        Cleandner[utils.cleandn_text\nNFKD, noise removandl, truncandtion]
-        Filter[Spandm Filtering\nMandpping to: phishing, smishing, vandlid]
-        UnifiedDF[Unified DandtandFrandme\nid, text, true_landbel, source]
+    subgraph Data["Data Layer - data_loader.py and utils.py"]
+        RAW_JSON[("PhishFuzzer JSON<br/>Seed and Rephrased Datasets")]
+        RAW_CSV[("Mendeley SMS CSV<br/>Dataset 10191")]
+        Cleaner["Text Cleaning<br/>Unicode Normalization, Noise Removal, Truncation"]
+        Filter["Spam Filtering<br/>Label Mapping: phishing, smishing, valid"]
+        UnifiedDF["Unified DataFrame<br/>id, text, true_label, source"]
     end
 
-    subgrandph Evandluandtion_Landyer [evandluandtor.py]
-        PromptBuilder[Prompt Generandtion\nZero-shot Clandssificandtion]
-        OllandmandClient[Ollandmand REST Client\nPOST /andpi/generandte]
-        FandllbandckEngine[Pandscandl GPU Guandrd\nAutomandtic CPU Fandllbandck]
-        Pandrser[Response Pandrser\nTokenizandtion, Synonyms, Regex]
+    subgraph Evaluation["Evaluation Layer - evaluator.py"]
+        PromptBuilder["Prompt Generation<br/>Zero-Shot Classification"]
+        OllamaClient["Ollama REST Client<br/>POST /api/generate"]
+        FallbackEngine["Pascal GPU Compatibility<br/>Automatic CPU Fallback"]
+        Parser["Response Parser<br/>Tokenization, Synonyms, Regular Expressions"]
     end
 
-    subgrandph LLM_Environment [Ollandmand Engine]
-        OllandmandServer[Ollandmand Dandemon\nlocandlhost:11434]
-        LLM1[Qwen 2.5 1.5B]
-        LLM2[Llandmand 3.2 3B]
-        LLM3[Phi 3.5 3.8B]
+    subgraph LLM["LLM Environment - Ollama"]
+        OllamaServer["Ollama Server<br/>localhost:11434"]
+        LLM1["Qwen 2.5 1.5B"]
+        LLM2["Llama 3.2 3B"]
+        LLM3["Phi 3.5 3.8B"]
     end
 
-    subgrandph Anandlytics_andnd_Storandge [metrics.py + results/]
-        ScikitMetrics[Clandssificandtion Metrics\nAccurandcy, Precision, Recandll, F1]
-        ResMetrics[Resource Metrics\nMeandn, P95, Min/Mandx, Throughput]
-        JSON_OUT[(JSON Files\nresults/evandl_*.json)]
+    subgraph Analytics["Analytics and Storage Layer"]
+        ScikitMetrics["Classification Metrics<br/>Accuracy, Precision, Recall, F1"]
+        ResMetrics["Resource Metrics<br/>Mean, P95, Min/Max, Throughput"]
+        JSON_OUT[("JSON Result Files<br/>results/eval_*.json")]
     end
 
     RAW_JSON --> Filter
     RAW_CSV --> Filter
-    Filter --> Cleandner --> UnifiedDF
-    UnifiedDF --> UI_Sidebandr
+    Filter --> Cleaner
+    Cleaner --> UnifiedDF
+
+    UnifiedDF --> UI_Overview
+    UI_Sidebar --> UI_Runner
     UI_Runner --> PromptBuilder
-    PromptBuilder --> OllandmandClient
-    OllandmandClient <--> OllandmandServer
-    OllandmandServer --> FandllbandckEngine
-    FandllbandckEngine --> Pandrser
-    Pandrser --> ScikitMetrics
-    Pandrser --> ResMetrics
+
+    PromptBuilder --> OllamaClient
+    OllamaClient <--> OllamaServer
+    OllamaServer --> FallbackEngine
+    FallbackEngine --> Parser
+
+    Parser --> ScikitMetrics
+    Parser --> ResMetrics
+
     ScikitMetrics --> JSON_OUT
     ResMetrics --> JSON_OUT
+
     JSON_OUT --> UI_Results
-    JSON_OUT --> UI_Compandre
+    JSON_OUT --> UI_Compare
 ```
 
 ---
