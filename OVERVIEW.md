@@ -37,146 +37,43 @@ A key feandture of the project is the simultandneous andnandlysis of **clandssif
 
 ---
 
-## 2. Globandl System Architecture
-
-The system uses and modulandr andrchitecture with low coupling andnd high cohesion. Communicandtion with LLMs tandkes plandce locandlly through the **Ollandmand REST API**.
-
-2.1 Presentation Layer
-
-File: app.py
-
-The presentation layer provides an interactive web interface built with Streamlit. It allows users to configure experiments, monitor evaluation progress, analyze results, and compare language models.
-
-Main components:
-
-Experiment Configuration: Selection of the LLM, dataset, sample size, and computing device.
-
-Data Overview: Visualization of dataset statistics, label distributions, and sample messages.
-
-Evaluation Panel: Execution of experiments with live progress updates, estimated completion time, and current metrics.
-
-Results Dashboard: Presentation of classification metrics, confusion matrices, charts, and JSON reports.
-
-Model Comparison: Comparison of evaluation results across different language models.
-
-2.2 Data Layer
-
-Files: data_loader.py, utils.py
-
-The data layer is responsible for loading, cleaning, filtering, and preparing datasets for evaluation.
-
-Data sources:
-
-PhishFuzzer: JSON datasets containing original and rephrased messages.
-
-Mendeley SMS Dataset: A CSV dataset containing SMS messages.
-
-The data preparation pipeline performs the following operations:
-
-Loads data from JSON and CSV files.
-
-Filters out excluded spam categories according to the configured label mappings.
-
-Normalizes and cleans message text.
-
-Combines the selected datasets into a unified Pandas DataFrame.
-
-Each processed record contains the following fields: id, text, true_label, and source.
-
-The supported classification labels are phishing, smishing, and valid.
-
-2.3 Evaluation Layer
-
-File: evaluator.py
-
-The evaluation layer manages communication with local language models and processes their predictions.
-
-Its main responsibilities include:
-
-Generating classification prompts using a zero-shot approach.
-
-Sending requests to the Ollama REST API through the /api/generate endpoint.
-
-Measuring inference latency and collecting response metadata.
-
-Parsing model responses into standardized classification labels.
-
-Handling GPU-related errors and retrying requests in CPU mode when necessary.
-
-Reporting evaluation progress to the Streamlit interface.
-
-The evaluation process produces individual inference results and an aggregated evaluation run.
-
-2.4 Local LLM Environment
-
-Technology: Ollama
-
-Ollama runs the language models locally and exposes an HTTP API, typically available at http://localhost:11434.
-
-The platform supports evaluating locally installed models, including:
-
-Qwen 2.5 1.5B
-
-Llama 3.2 3B
-
-Phi 3.5 3.8B
-
-The available models are retrieved dynamically from the Ollama installation.
-
-2.5 Analytics and Storage Layer
-
-Files: metrics.py, utils.py
-
-This layer calculates classification performance metrics, measures resource usage, and stores evaluation reports.
-
-Classification metrics include:
-
-Accuracy
-
-Precision
-
-Recall
-
-F1-score
-
-Per-class and macro-averaged metrics
-
-Confusion matrix
-
-Resource metrics include:
-
-Average, median, minimum, and maximum inference latency
-
-95th percentile latency (P95)
-
-Throughput in messages per minute
-
-Model size
-
-Completed evaluation reports are saved as JSON files in the results/ directory. These files are used to display results and compare models across experiments.
-
-2.6 System Workflow
-
-The complete evaluation workflow consists of the following steps:
-
-The user selects a model, dataset, sample size, and computing device in the Streamlit interface.
-
-The data loader prepares the selected dataset and converts it into a unified DataFrame.
-
-The evaluation engine generates a classification prompt for each message.
-
-The prompt is sent to the selected local LLM through the Ollama REST API.
-
-The model response is parsed into one of the supported classification labels.
-
-The system records inference latency and other available metadata.
-
-The metrics module calculates classification and resource performance metrics.
-
-The completed evaluation report is saved as a JSON file.
-
-The Streamlit dashboard displays the results and enables comparisons between models.
-
+## 2. Global System Architecture
+
+The system consists of five main layers: the user interface, data processing, model evaluation, local LLM execution, and results analysis. These components work together to evaluate phishing and smishing detection performance.
+
+```mermaid
+flowchart TD
+    A["Streamlit Dashboard<br/>app.py"] --> B["Data Loading and Cleaning<br/>data_loader.py and utils.py"]
+    B --> C["Unified Dataset<br/>Pandas DataFrame"]
+    C --> D["Evaluation Engine<br/>evaluator.py"]
+    D --> E["Prompt Generation<br/>Zero-Shot Classification"]
+    E --> F["Ollama REST API<br/>localhost:11434"]
+    F --> G["Local Language Model<br/>Qwen, Llama, or Phi"]
+    G --> H["Response Parsing<br/>Classification Label"]
+    H --> I["Metrics Calculation<br/>metrics.py"]
+    I --> J["JSON Report Storage<br/>results/"]
+    J --> K["Results Dashboard<br/>Charts and Metrics"]
+    J --> L["Model Comparison"]
+
+    M["PhishFuzzer JSON"] --> B
+    N["Mendeley SMS CSV"] --> B
+
+    D -.-> O["CPU Fallback<br/>When GPU Errors Occur"]
+    O -.-> F
+
+    style A fill:#dbeafe,stroke:#2563eb,color:#111827
+    style F fill:#dcfce7,stroke:#16a34a,color:#111827
+    style I fill:#fef3c7,stroke:#d97706,color:#111827
+    style J fill:#f3e8ff,stroke:#9333ea,color:#111827
+```
+
+### Architecture Overview
+
+- **Presentation:** Streamlit provides experiment configuration, progress monitoring, and result visualization.
+- **Data Processing:** JSON and CSV datasets are cleaned, filtered, and combined into a unified DataFrame.
+- **Evaluation:** The evaluation engine prepares prompts, sends requests to Ollama, and parses model responses.
+- **Local Inference:** Ollama runs the selected language model locally. CPU fallback can be used when GPU errors occur.
+- **Analytics and Storage:** Classification and resource metrics are calculated and saved as JSON reports for visualization and model comparison.
 
 ---
 
