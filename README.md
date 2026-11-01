@@ -180,7 +180,8 @@ markerPhish/
 
 ```powershell
 # 1. Clone or navigate to the repository
-cd D:\Projects\markerPhish
+git clone https://github.com/Wasumaster/markerPhish.git
+cd markerPhish
 
 # 2. Create and activate a Python virtual environment
 python -m venv .venv
