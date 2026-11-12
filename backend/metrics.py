@@ -22,6 +22,10 @@ from sklearn.metrics import (
 
 from config import (
     BINARY_LABELS,
+    OLLAMA_NUM_CTX,
+    OLLAMA_TEMPERATURE,
+    OLLAMA_TOP_P,
+    PROMPT_VARIANTS,
     is_binary_match,
     to_binary_label,
 )
@@ -287,6 +291,23 @@ def compute_resource_metrics(run: "EvaluationRun") -> dict:
         "max_latency_s": round(max_lat, 4),
         "p95_latency_s": round(p95_lat, 4),
         "throughput_msgs_per_min": round(throughput, 2),
+        # Model load time measured by the warm-up request (excluded from latencies)
+        "cold_start_s": round(float(getattr(run, "cold_start_s", 0.0) or 0.0), 3),
+    }
+
+
+def build_inference_config(prompt_variant: str) -> dict:
+    """Describe the inference setup of a run so reports are reproducible."""
+    settings = PROMPT_VARIANTS.get(prompt_variant, {})
+    return {
+        "prompt_variant": prompt_variant,
+        "prompt_description": settings.get("description", ""),
+        "task": "binary (malicious vs. valid); channel derived from dataset source",
+        "output_format": "JSON Schema (constrained decoding)",
+        "num_ctx": OLLAMA_NUM_CTX,
+        "num_predict": settings.get("num_predict"),
+        "temperature": OLLAMA_TEMPERATURE,
+        "top_p": OLLAMA_TOP_P,
     }
 
 
@@ -312,9 +333,13 @@ def build_full_report(
     true_binary_dist = dict(Counter(to_binary_label(t) for t in y_true))
     pred_binary_dist = dict(Counter(to_binary_label(p) for p in y_pred))
 
+    prompt_variant = getattr(run, "prompt_variant", "") or ""
+
     return {
         "model_name": run.model_name,
         "execution_mode": execution_mode,
+        "prompt_variant": prompt_variant,
+        "inference_config": build_inference_config(prompt_variant),
         "hardware_profile": hardware_profile or {},
         "classification_metrics": classification,
         "resource_metrics": resources,
@@ -327,6 +352,7 @@ def build_full_report(
         "raw_predictions": [
             {
                 "id": r.record_id,
+                "channel": getattr(r, "channel", ""),
                 "true": r.true_label,
                 "predicted": r.predicted_label,
                 "true_binary": to_binary_label(r.true_label),

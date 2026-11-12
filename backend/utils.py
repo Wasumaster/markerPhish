@@ -6,6 +6,7 @@ Logging, text cleaning, directory helpers, and result persistence.
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import os
@@ -13,7 +14,7 @@ import re
 import unicodedata
 from datetime import datetime
 
-from config import RESULTS_DIR
+from config import LEGACY_PROMPT_VARIANT, PROMPT_VARIANTS, RESULTS_DIR
 
 
 # ──────────────────────────────────────────────
@@ -45,11 +46,50 @@ logger = setup_logger()
 # ──────────────────────────────────────────────
 # Text cleaning
 # ──────────────────────────────────────────────
+# A real HTML tag: "<" directly followed by a known tag name (so plain text such
+# as "5 < 6 and a > b" is never treated as markup).
+_HTML_TAG_DETECT_RE = re.compile(
+    r"</?(?:html|head|body|title|meta|link|style|script|div|span|p|br|hr|a|img|table|thead|tbody|tr|td|th|"
+    r"ul|ol|li|h[1-6]|font|center|b|i|u|em|strong|small|blockquote|pre|section|header|footer)\b[^<>]*>",
+    re.IGNORECASE,
+)
+_HTML_DROP_BLOCK_RE = re.compile(r"<(script|style|head)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+_HTML_ANCHOR_RE = re.compile(
+    r"<a\b[^>]*?\bhref\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s>]+))[^>]*>(.*?)</a\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+_HTML_BREAK_RE = re.compile(r"<br\s*/?>|</(?:p|div|tr|li|h[1-6])\s*>", re.IGNORECASE)
+_HTML_ANY_TAG_RE = re.compile(r"</?[a-zA-Z][a-zA-Z0-9]*(?:\s[^<>]*)?/?>|<![^<>]*>")
+
+
+def _anchor_to_text(match: re.Match) -> str:
+    """Turn <a href="URL">TEXT</a> into "TEXT (URL)" (link targets are a key phishing signal)."""
+    href = (match.group(1) or match.group(2) or match.group(3) or "").strip()
+    inner = _HTML_ANY_TAG_RE.sub("", match.group(4) or "").strip()
+    if not href:
+        return inner
+    if not inner or inner == href:
+        return href
+    return f"{inner} ({href})"
+
+
+def html_to_text(text: str) -> str:
+    """Convert an HTML message body to plain text, keeping link targets visible."""
+    text = _HTML_DROP_BLOCK_RE.sub(" ", text)
+    text = _HTML_COMMENT_RE.sub(" ", text)
+    text = _HTML_ANCHOR_RE.sub(_anchor_to_text, text)
+    text = _HTML_BREAK_RE.sub("\n", text)
+    text = _HTML_ANY_TAG_RE.sub("", text)
+    return text
+
+
 def clean_text(text: str) -> str:
     """
     Normalise and clean a message body for LLM consumption.
 
     Steps:
+        0. HTML bodies -> plain text (links kept as "TEXT (URL)"); unescape entities
         1. Unicode normalisation (NFKD)
         2. Remove unprintable chars
         3. Collapse excessive whitespace / newlines
@@ -57,6 +97,9 @@ def clean_text(text: str) -> str:
     """
     if not isinstance(text, str):
         return ""
+    if _HTML_TAG_DETECT_RE.search(text):
+        text = html_to_text(text)
+    text = html.unescape(text)
     text = unicodedata.normalize("NFKD", text)
     text = re.sub(r"[^\x20-\x7E\n\t]", " ", text)
     text = re.sub(r"[ \t]+", " ", text)
@@ -79,15 +122,21 @@ def ensure_dir(path: str) -> str:
 # ──────────────────────────────────────────────
 # Result persistence & retrieval
 # ──────────────────────────────────────────────
-def save_results(results: dict, model_name: str) -> str:
+def save_results(results: dict, model_name: str, prompt_variant: str | None = None) -> str:
     """
-    Save evaluation results to a timestamped JSON file.
+    Save evaluation results to a timestamped JSON file:
+    results/eval_<model>_<prompt_variant>_<timestamp>.json
+    (the variant is taken from the report if not given).
     Returns the path to the saved file.
     """
     ensure_dir(RESULTS_DIR)
     safe_name = model_name.replace(":", "_").replace("/", "_")
+    variant = prompt_variant or results.get("prompt_variant")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"eval_{safe_name}_{timestamp}.json"
+    if variant:
+        filename = f"eval_{safe_name}_{variant}_{timestamp}.json"
+    else:
+        filename = f"eval_{safe_name}_{timestamp}.json"
     filepath = os.path.join(RESULTS_DIR, filename)
 
     with open(filepath, "w", encoding="utf-8") as f:
@@ -135,17 +184,24 @@ def load_result_by_filename(filename: str) -> dict | None:
 def format_result_label(filename: str) -> str:
     """
     Format a result filename into a concise, professional display string.
-    Example: eval_phi3.5_latest_20261022_145434.json -> phi3.5:latest | 2026-10-22 14:54:34
+    Example: eval_phi3.5_latest_fewshot_20261022_145434.json
+             -> phi3.5_latest | fewshot | 2026-10-22 14:54:34 (filename)
+    Files without a prompt variant (older reports) are shown as "legacy".
     """
     stem = filename[:-5] if filename.endswith(".json") else filename
     parts = stem.split("_")
     if len(parts) >= 3 and parts[0] == "eval":
         date_str = parts[-2]
         time_str = parts[-1]
-        model_part = "_".join(parts[1:-2])
+        model_parts = parts[1:-2]
+        variant = LEGACY_PROMPT_VARIANT
+        if len(model_parts) > 1 and model_parts[-1] in PROMPT_VARIANTS:
+            variant = model_parts[-1]
+            model_parts = model_parts[:-1]
+        model_part = "_".join(model_parts)
         if len(date_str) == 8 and len(time_str) == 6 and date_str.isdigit() and time_str.isdigit():
             formatted_dt = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]} {time_str[:2]}:{time_str[2:4]}:{time_str[4:]}"
-            return f"{model_part} | {formatted_dt} ({filename})"
+            return f"{model_part} | {variant} | {formatted_dt} ({filename})"
     return filename
 
 
@@ -160,6 +216,20 @@ def load_latest_results(model_name: str | None = None) -> dict | None:
 # ──────────────────────────────────────────────
 # Report backward compatibility
 # ──────────────────────────────────────────────
+def report_prompt_variant(report: dict) -> str:
+    """Prompt variant of a report; "legacy" for reports created before variants existed."""
+    return (report or {}).get("prompt_variant") or LEGACY_PROMPT_VARIANT
+
+
+def report_cold_start(report: dict) -> float | None:
+    """Cold-start (model load) time in seconds, or None if the report predates it."""
+    value = (report or {}).get("resource_metrics", {}).get("cold_start_s")
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def ensure_report_compatibility(report: dict) -> dict:
     """
     Ensure saved results from older schema versions have binary metrics populated.

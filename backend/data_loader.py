@@ -15,12 +15,14 @@ import csv
 import json
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 
 from config import (
     PHISHFUZZER_LABEL_MAP,
     PHISHFUZZER_REPHRASED,
     PHISHFUZZER_SEED,
+    SAMPLE_SEED,
     SMISHING_CSV,
     SMISHING_LABEL_MAP,
     VALID_LABELS,
@@ -177,3 +179,42 @@ def load_unified_dataset(choice: DatasetChoice = "seed+sms") -> pd.DataFrame:
         df["true_label"].value_counts().to_dict(),
     )
     return df
+
+
+# ──────────────────────────────────────────────
+# Reproducible stratified sampling
+# ──────────────────────────────────────────────
+def stratified_sample(df: pd.DataFrame, n: int | None, seed: int = SAMPLE_SEED) -> pd.DataFrame:
+    """
+    Draw a seeded subsample of exactly n records, stratified by source x label.
+
+    Each stratum (e.g. "mendeley_sms|smishing") gets a share proportional to its
+    size; leftover slots go to the strata with the largest fractional remainder
+    (largest-remainder method). The result is shuffled with the same seed and
+    re-indexed with id 1..n, so every model and prompt variant sees the same records.
+    Returns df unchanged if n is None or n >= len(df).
+    """
+    if n is None or n >= len(df):
+        return df
+    if n <= 0:
+        return df.iloc[0:0].reset_index(drop=True)
+
+    strata = df["source"].astype(str) + "|" + df["true_label"].astype(str)
+    counts = strata.value_counts().sort_index()
+    quotas = counts * n / len(df)
+    alloc = np.floor(quotas).astype(int)
+    remainder = int(n - alloc.sum())
+    fractions = quotas - alloc
+    # Largest fractional part first; ties broken by stratum name for determinism
+    order = sorted(counts.index, key=lambda k: (-fractions[k], k))
+    for key in order[:remainder]:
+        alloc[key] += 1
+
+    parts = [
+        df[strata == key].sample(n=int(alloc[key]), random_state=seed)
+        for key in counts.index
+        if alloc[key] > 0
+    ]
+    sample = pd.concat(parts).sample(frac=1, random_state=seed).reset_index(drop=True)
+    sample["id"] = range(1, len(sample) + 1)
+    return sample
