@@ -59,15 +59,15 @@ MarkerPhish is a modular platform designed for automated, reproducible evaluatio
 
 **1. Binary Threat Detection Effectiveness**  
 *Does the model catch attacks?*  
-Results are framed as a binary decision: malicious vs. safe. A threat counts as intercepted whether the model labels it phishing or smishing, which reflects what matters in real-world cyber defense: stopping the attack, regardless of its exact channel.
+Results are framed as a binary decision: malicious vs. safe. The model answers only `malicious` or `valid`; the channel is known from the dataset source (PhishFuzzer = email, Mendeley = SMS), so a detected email threat is recorded as phishing and a detected SMS threat as smishing. This reflects what matters in real-world cyber defense: stopping the attack, without asking the model to guess something the system already knows.
 
 **2. Computational Overhead & Resource Efficiency**  
 *What does detection cost?*  
-Each run records latency (mean, median, P95, min/max), inference throughput (messages per minute), model storage footprint, and execution stability.
+Each run records latency (mean, median, P95, min/max), inference throughput (messages per minute), model storage footprint, cold-start (model load) time, and execution stability. The model is loaded by a warm-up request before the timed run, so loading never inflates the latency figures.
 
 **3. Multi-Model Comparative Benchmarking**  
 *Which model is best overall?*  
-Six or more benchmark runs can be compared side by side, with interactive trade-off charts (F1 vs. P95 latency, throughput vs. model size) and per-class channel breakdowns.
+Six or more benchmark runs can be compared side by side, including several prompt variants of the same model, with interactive trade-off charts (F1 vs. P95 latency, throughput vs. model size) and per-class channel breakdowns.
 
 **4. Hardware Telemetry & Adaptive Execution**  
 *What hardware is it running on?*  
@@ -146,7 +146,7 @@ markerPhish/
 - **Primary Binary Metrics:** Binary Accuracy, Threat Precision, Threat Recall, Threat F1-Score, Safe Specificity, Threat Miss Rate (FNR), False Alarm Rate (FPR), and Failed Inferences.
 - **Visual Diagnostics:** Interactive binary confusion matrix heatmap and ground truth vs. predicted distribution comparisons.
 - **Channel Diagnostics:** Detailed multi-class metrics (phishing vs. smishing vs. valid) and a channel confusion matrix.
-- **Computational Overhead:** Mean, median, and P95 latency, throughput, total execution time, and a latency distribution histogram.
+- **Computational Overhead:** Mean, median, and P95 latency, throughput, total execution time, cold-start (model load) time, and a latency distribution histogram. The report header shows the model and its prompt variant; reports created before prompt variants existed are shown as `legacy`.
 - **Audit Log & Traceability:** Full prediction audit table with per-record latency, prompt responses, and scikit-learn report exports.
 
 ### 4. Multi-Model Comparison (`frontend/multi_comparison.py`)
@@ -154,7 +154,7 @@ markerPhish/
 *Put several models next to each other and pick the best fit.*
 
 - Concurrent evaluation of **6 or more benchmark JSON reports**.
-- **Summary Metrics Matrix:** Side-by-side table with Accuracy, Threat Precision, Threat Recall, Threat F1-Score, Safe Specificity, P95 Latency, Throughput, Model Size, and Hardware Mode.
+- **Summary Metrics Matrix:** Side-by-side table with Prompt Variant, Accuracy, Threat Precision, Threat Recall, Threat F1-Score, Safe Specificity, P95 Latency, Throughput, Cold Start, Model Size, and Hardware Mode. Runs are labelled `model [prompt variant]`, so two variants of the same model stay distinguishable in the table, charts, and CSV export.
 - **Executive KPI Cards:** Instant identification of best-in-class models (Highest F1, Highest Recall, Lowest P95 Latency, Peak Throughput).
 - **Interactive Trade-off Analysis (Plotly):**
   - Threat F1-Score vs. P95 Latency (with model size bubble scaling).
@@ -242,14 +242,28 @@ Enables CUDA kernel offloading for maximum throughput on modern GPU architecture
 
 ### Binary Threat Detection Schema
 
-**How a single prediction is scored.** The model's answer is compared with the true label of the message:
+**How a single prediction is scored.** The model answers `malicious` or `valid`. A `malicious` answer is recorded as `phishing` for emails and `smishing` for SMS (the channel comes from the dataset source), and is then compared with the true label of the message:
 
-| Ground Truth | Model Prediction | Classification Outcome | Cyber Defense Impact |
-|--------------|------------------|------------------------|----------------------|
-| `phishing` or `smishing` | `phishing` or `smishing` | True Positive (TP) | Attack Intercepted |
+| Ground Truth | Model Answer | Classification Outcome | Cyber Defense Impact |
+|--------------|--------------|------------------------|----------------------|
+| `phishing` or `smishing` | `malicious` | True Positive (TP) | Attack Intercepted |
 | `valid` | `valid` | True Negative (TN) | Legitimate Message Passed |
-| `valid` | `phishing` or `smishing` | False Positive (FP) | False Alarm / Disruption |
+| `valid` | `malicious` | False Positive (FP) | False Alarm / Disruption |
 | `phishing` or `smishing` | `valid` | False Negative (FN) | Undetected Threat (Security Breach) |
+
+### Prompt Variants & Inference Setup
+
+**What is held constant.** Every run uses `temperature = 0.0`, `top_p = 1.0`, and a 4,096-token context window (`num_ctx`; the few-shot prompt is about 850 tokens plus a message of up to 1,500 characters). The answer is constrained with a JSON Schema passed as Ollama's `format` parameter, so the model can only return `{"label": "malicious"}` or `{"label": "valid"}`. Models that Ollama reports as thinking-capable receive `think: false`.
+
+**What is varied.** The prompt variant is selected in the sidebar and stored in every report (`prompt_variant`, `inference_config`) and in the file name (`eval_<model>_<variant>_<timestamp>.json`):
+
+| Variant | Prompt | Output | `num_predict` |
+|---------|--------|--------|---------------|
+| `zeroshot` | Instructions only | `{"label": ...}` | 24 |
+| `fewshot` (default) | Instructions + 6 hand-written examples | `{"label": ...}` | 24 |
+| `fewshotcot` | Instructions + 6 examples with a one-sentence justification | `{"reasoning": ..., "label": ...}` | 160 |
+
+**Same records for every run.** Subsamples are drawn with seeded stratified sampling (source × label, `SAMPLE_SEED = 42`), so every model and variant is evaluated on exactly the same messages in the same class proportions. HTML email bodies are converted to plain text with link targets kept visible (`TEXT (URL)`).
 
 ### Formal Metrics
 
