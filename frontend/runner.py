@@ -14,6 +14,15 @@ import streamlit as st
 from backend.evaluator import run_evaluation
 from backend.metrics import build_full_report
 from backend.utils import save_results
+from config import ACTIVE_PROMPT_VARIANT, PROMPT_VARIANTS
+from ui.components import (
+    cell,
+    data_table,
+    kv_table,
+    page_title,
+    section_label,
+)
+from ui.theme import MALICIOUS, SAFE
 
 
 def render_evaluation_runner(
@@ -21,6 +30,7 @@ def render_evaluation_runner(
     df_eval: pd.DataFrame,
     num_gpu: int | None,
     mode_display_name: str,
+    prompt_variant: str | None = None,
 ) -> None:
     """
     Render the live evaluation runner interface and handle execution lifecycle.
@@ -30,43 +40,37 @@ def render_evaluation_runner(
         df_eval: DataFrame containing the dataset records to evaluate.
         num_gpu: GPU offloading setting (0 for CPU Safe Mode, None for auto/GPU).
         mode_display_name: Human-readable execution mode string.
+        prompt_variant: Prompt variant key from config.PROMPT_VARIANTS (active variant if None).
     """
-    st.markdown('<div class="section-title">Automated Model Evaluation</div>', unsafe_allow_html=True)
+    prompt_variant = prompt_variant or ACTIVE_PROMPT_VARIANT
+
+    page_title(
+        "Run",
+        "Classify every message in the current sample with the selected model and prompt. "
+        "Model loading is measured separately as cold start and is excluded from latency.",
+    )
 
     # ──────────────────────────────────────────────
-    # 1. Configuration Manifest Card
+    # 1. Configuration
     # ──────────────────────────────────────────────
-    st.markdown(
-        f"""
-        <div class="card-panel">
-            <div class="card-panel-header">Evaluation Configuration Manifest</div>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; font-size: 0.85rem;">
-                <div>
-                    <span style="color: #94a3b8;">Target Model:</span><br>
-                    <strong style="color: #f8fafc; font-family: monospace;">{selected_model}</strong>
-                </div>
-                <div>
-                    <span style="color: #94a3b8;">Execution Environment:</span><br>
-                    <strong style="color: #38bdf8;">{mode_display_name}</strong>
-                </div>
-                <div>
-                    <span style="color: #94a3b8;">Dataset Volume:</span><br>
-                    <strong style="color: #f8fafc;">{len(df_eval):,} messages</strong>
-                </div>
-                <div>
-                    <span style="color: #94a3b8;">Evaluation Standard:</span><br>
-                    <strong style="color: #10b981;">Binary Threat Classification</strong>
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    with st.container():
+        section_label("configuration")
+        kv_table(
+            [
+                ("model", selected_model),
+                ("prompt", prompt_variant),
+                ("prompt description", PROMPT_VARIANTS.get(prompt_variant, {}).get("description", "—")),
+                ("environment", mode_display_name),
+                ("messages", f"{len(df_eval):,}"),
+                ("task", "binary threat classification (malicious vs. valid)"),
+            ],
+            headers=("setting", "value"),
+        )
 
     col_btn, _ = st.columns([1, 2])
     with col_btn:
         start_btn = st.button(
-            "Execute Evaluation Run",
+            "Run evaluation",
             type="primary",
             width="stretch",
             disabled=st.session_state.get("is_running", False),
@@ -75,7 +79,7 @@ def render_evaluation_runner(
     if start_btn:
         st.session_state["is_running"] = True
 
-        progress_bar = st.progress(0, text="Initializing evaluation session...")
+        progress_bar = st.progress(0, text="Loading model into memory (cold start, excluded from latency)...")
         telemetry_area = st.empty()
         live_log_area = st.empty()
 
@@ -86,14 +90,14 @@ def render_evaluation_runner(
             nonlocal correct_binary_count, total_latency
             pct = current / total
             is_correct_bin = result.is_binary_correct
-            status_text = "CORRECT" if is_correct_bin else "MISMATCH"
+            status_text = "correct" if is_correct_bin else "mismatch"
 
             progress_bar.progress(
                 pct,
                 text=(
-                    f"Processing record {current}/{total} | "
-                    f"Prediction: {result.predicted_label} [{status_text}] | "
-                    f"Latency: {result.latency_seconds:.2f}s"
+                    f"record {current}/{total} · "
+                    f"prediction {result.predicted_label} ({status_text}) · "
+                    f"{result.latency_seconds:.2f} s"
                 ),
             )
 
@@ -101,39 +105,43 @@ def render_evaluation_runner(
                 correct_binary_count += 1
             total_latency += result.latency_seconds
 
-            # Refresh telemetry metrics every 2 records or on completion
+            # Refresh telemetry every 2 records or on completion
             if current % 2 == 0 or current == total:
+                running_acc = (correct_binary_count / current) if current > 0 else 0.0
+                avg_lat = (total_latency / current) if current > 0 else 0.0
+                eta_seconds = avg_lat * (total - current) if avg_lat > 0 else 0.0
+                mins, secs = divmod(int(eta_seconds), 60)
                 with telemetry_area.container():
-                    m1, m2, m3, m4 = st.columns(4)
-                    with m1:
-                        st.metric("Processed Records", f"{current}/{total}")
-                    with m2:
-                        running_acc = (correct_binary_count / current) if current > 0 else 0.0
-                        st.metric("Running Binary Accuracy", f"{running_acc:.1%}")
-                    with m3:
-                        avg_lat = (total_latency / current) if current > 0 else 0.0
-                        st.metric("Mean Latency", f"{avg_lat:.2f}s")
-                    with m4:
-                        eta_seconds = avg_lat * (total - current) if avg_lat > 0 else 0.0
-                        mins, secs = divmod(int(eta_seconds), 60)
-                        st.metric("Estimated Remaining (ETA)", f"{mins}m {secs}s")
+                    section_label("telemetry")
+                    data_table(
+                        ["processed", "running binary accuracy", "mean latency", "estimated remaining"],
+                        [[f"{current}/{total}", f"{running_acc:.2%}", f"{avg_lat:.2f} s", f"{mins}m {secs}s"]],
+                        numeric={0, 1, 2, 3},
+                        max_width="760px",
+                    )
 
-            # Refresh live activity log card
+            # Refresh the most recent inference row
             with live_log_area.container():
-                outcome_color = "#10b981" if is_correct_bin else "#f43f5e"
-                st.markdown(
-                    f"""
-                    <div class="card-panel" style="margin-top: 10px; padding: 12px 16px;">
-                        <div class="card-panel-header">Recent Inference Telemetry (Record #{result.record_id})</div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem;">
-                            <span>True Class: <strong>{result.true_label}</strong> ({result.true_binary})</span>
-                            <span>Model Prediction: <strong>{result.predicted_label}</strong> ({result.predicted_binary})</span>
-                            <span style="color: {outcome_color}; font-weight: 600;">{status_text}</span>
-                            <span>Latency: <strong>{result.latency_seconds:.3f}s</strong></span>
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
+                section_label(f"last inference · record {result.record_id}")
+                data_table(
+                    ["record", "true class", "prediction", "outcome", "latency"],
+                    [
+                        [
+                            str(result.record_id),
+                            cell(
+                                f"{result.true_label} ({result.true_binary})",
+                                color=MALICIOUS if result.true_binary == "malicious" else SAFE,
+                            ),
+                            cell(
+                                f"{result.predicted_label} ({result.predicted_binary})",
+                                color=MALICIOUS if result.predicted_binary == "malicious" else SAFE,
+                            ),
+                            cell(status_text, bold=not is_correct_bin),
+                            f"{result.latency_seconds:.3f} s",
+                        ]
+                    ],
+                    numeric={4},
+                    max_width="760px",
                 )
 
         eval_run = run_evaluation(
@@ -141,6 +149,7 @@ def render_evaluation_runner(
             df=df_eval,
             num_gpu=num_gpu,
             progress_callback=progress_callback,
+            prompt_variant=prompt_variant,
         )
 
         st.session_state["evaluation_run"] = eval_run
@@ -152,11 +161,11 @@ def render_evaluation_runner(
         report = build_full_report(eval_run, hardware_profile=hw_dict, execution_mode=mode_display_name)
         st.session_state["report"] = report
 
-        filepath = save_results(report, selected_model)
+        filepath = save_results(report, selected_model, prompt_variant=prompt_variant)
         new_filename = os.path.basename(filepath)
         st.session_state["selected_result_file"] = new_filename
         st.session_state["loaded_filename"] = new_filename
 
-        progress_bar.progress(1.0, text="Evaluation completed successfully.")
+        progress_bar.progress(1.0, text="Evaluation completed.")
         st.session_state["is_running"] = False
-        st.success(f"Evaluation session completed. Persistent report archived to: {filepath}")
+        st.success(f"Evaluation session completed. Report saved to: {filepath}")

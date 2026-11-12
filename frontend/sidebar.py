@@ -1,18 +1,25 @@
 """
 MarkerPhish — Sidebar Component
 =================================
-Renders the application sidebar with model selection, dataset configuration,
-and execution environment controls.
+Renders the application sidebar with model selection, prompt variant, dataset
+configuration and execution environment controls.
 """
 
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 
 from backend.data_loader import DATASET_CHOICES
 from backend.evaluator import check_ollama_connection, list_available_models
 from backend.hardware import resolve_num_gpu
-from config import SAMPLE_SIZES
+from config import ACTIVE_PROMPT_VARIANT, PROMPT_VARIANTS, SAMPLE_SIZES, to_binary_label
+from ui.components import esc, note
+from ui.theme import INK
+
+# Session key holding the sidebar placeholder for the dataset summary line.
+# It is UI-only: the placeholder is recreated on every script run.
+_DATASET_SLOT_KEY = "_ui_sidebar_dataset_slot"
 
 
 def render_sidebar() -> tuple:
@@ -20,150 +27,139 @@ def render_sidebar() -> tuple:
     Render the sidebar with all configuration controls.
 
     Returns:
-        tuple: (selected_model, dataset_choice, sample_size, num_gpu, mode_display_name)
-               or (None, None, None, None, None) if configuration is incomplete.
+        tuple: (selected_model, dataset_choice, sample_size, num_gpu, mode_display_name, prompt_variant)
+               or (None, None, None, None, None, None) if configuration is incomplete.
     """
     hw = st.session_state["hardware_profile"]
+    st.session_state[_DATASET_SLOT_KEY] = None
 
     with st.sidebar:
-        st.markdown(
-            """
-            <div style="padding-bottom: 8px;">
-                <span style="font-size: 1.25rem; font-weight: 700; color: #f8fafc; letter-spacing: -0.01em;">MarkerPhish</span><br>
-                <span style="font-size: 0.78rem; color: #94a3b8;">Evaluation & Analytics Platform</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.divider()
-
-        # ── 1. MODEL SELECTION (Very Top) ──
-        st.markdown("### Model Selection")
-
-        # Inference Server Connection Status
+        # ── 1. MODEL ──
         connected = check_ollama_connection()
-        if connected:
-            st.markdown(
-                '<div class="badge badge-online">Ollama Service Online</div>',
-                unsafe_allow_html=True,
-            )
-            st.caption("Endpoint: `http://localhost:11434`")
-        else:
-            st.markdown(
-                '<div class="badge badge-offline">Ollama Service Offline</div>',
-                unsafe_allow_html=True,
-            )
-            st.caption("Start Ollama service: `ollama serve`")
-            st.error("Server connection required to evaluate models.")
-            return None, None, None, None, None
+        if not connected:
+            st.error("Ollama is offline. Server connection required to evaluate models.")
+            note("Start Ollama service: ollama serve", mono=True)
+            return None, None, None, None, None, None
 
         # Installed Models Dropdown
         models = list_available_models()
         if not models:
             st.warning("No locally installed models detected. Execute `ollama pull <model>` in terminal.")
-            return None, None, None, None, None
+            return None, None, None, None, None, None
 
         model_names = [m["name"] for m in models]
         model_sizes = {m["name"]: m["size"] for m in models}
 
-        selected_model = st.selectbox(
-            "Installed LLM",
-            options=model_names,
-            index=0,
-            help="Select a model installed in local Ollama repository",
-        )
-
-        if selected_model:
-            size_mb = model_sizes.get(selected_model, 0) / (1024 * 1024)
-            st.caption(f"Storage footprint: **{size_mb:.1f} MB** ({size_mb / 1024:.2f} GB)")
-
-        st.divider()
-
-        # ── 2. DATASET & SCOPE (Second) ──
-        st.markdown("### Dataset & Scope")
-        dataset_label = st.selectbox(
-            "Evaluation Dataset",
-            options=list(DATASET_CHOICES.keys()),
-            index=0,
-            help="Select dataset combination for evaluation",
-        )
-        dataset_choice = DATASET_CHOICES[dataset_label]
-
-        sample_label = st.selectbox(
-            "Evaluation Sample Size",
-            options=list(SAMPLE_SIZES.keys()),
-            index=1,  # Small (100) default
-            help="Select subsample size for testing and latency measurement",
-        )
-        sample_size = SAMPLE_SIZES[sample_label]
-
-        st.divider()
-
-        # ── 3. EXECUTION ENVIRONMENT (Very Bottom) ──
-        st.markdown("### Execution Environment")
-
-        # Hardware scan telemetry card
-        gpu_label = hw.gpu_name if hw.has_gpu else "No dedicated GPU detected"
-        gpu_sub = (
-            f"VRAM: {hw.gpu_vram_mb} MB | Driver: {hw.gpu_driver} | Compute: {hw.compute_cap}"
-            if hw.has_gpu
-            else "Standard multi-threaded CPU execution"
-        )
-
-        st.markdown(
-            f"""
-            <div class="card-panel" style="padding: 10px 14px; margin-bottom: 10px;">
-                <div class="card-panel-header">Host Hardware Profile</div>
-                <div style="font-size: 0.8rem; color: #f1f5f9; font-weight: 500;">
-                    CPU: {hw.cpu_name}
-                </div>
-                <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 2px;">
-                    Cores: {hw.cpu_cores_physical} physical, {hw.cpu_cores_logical} logical | RAM: {hw.ram_total_gb:.1f} GB ({hw.ram_available_gb:.1f} GB free)
-                </div>
-                <div style="font-size: 0.8rem; color: #f1f5f9; font-weight: 500; margin-top: 6px;">
-                    GPU: {gpu_label}
-                </div>
-                <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 2px;">
-                    {gpu_sub}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        # Execution Mode Selection
-        device_options = ["CPU Safe Mode (Recommended)", "GPU Hardware Acceleration"]
-        default_index = 0 if hw.recommended_mode == "cpu" else 1
-
-        selected_mode_str = st.radio(
-            "Inference Device Selection",
-            options=device_options,
-            index=default_index,
-            help=(
-                "CPU Safe Mode executes inference on host processor (num_gpu=0), "
-                "guaranteeing stability on Pascal (sm_61) GPUs and avoiding CUDA PTX buffer overruns. "
-                "GPU Acceleration enables CUDA device offloading."
-            ),
-        )
-
-        num_gpu, mode_display_name = resolve_num_gpu(selected_mode_str)
-
-        # Factual feedback on selected mode
-        if num_gpu == 0:
-            st.markdown(
-                '<div class="notice-box">'
-                "<strong>CPU Safe Mode active:</strong> Ollama `num_gpu=0` set. "
-                "Inference runs strictly on CPU threads, ensuring reproducibility and zero CUDA runtime crashes."
-                "</div>",
-                unsafe_allow_html=True,
+        with st.container():
+            selected_model = st.selectbox(
+                "model",
+                options=model_names,
+                index=0,
+                help="Select a model installed in local Ollama repository",
             )
-        else:
+            if selected_model:
+                size_gb = model_sizes.get(selected_model, 0) / (1024 ** 3)
+                note(f"{size_gb:.2f} GB on disk", mono=True)
+
+        # ── 2. PROMPT ──
+        with st.container():
+            variant_keys = list(PROMPT_VARIANTS.keys())
+            prompt_variant = st.selectbox(
+                "prompt",
+                options=variant_keys,
+                index=variant_keys.index(ACTIVE_PROMPT_VARIANT),
+                help=(
+                    "Prompt-engineering setup for the binary decision (malicious vs. valid). "
+                    "The channel (email / SMS) is taken from the dataset source, not guessed by the model."
+                ),
+            )
             st.markdown(
-                '<div class="notice-box">'
-                "<strong>GPU Acceleration active:</strong> Ollama CUDA offloading enabled. "
-                "If CUDA toolchain or PTX errors occur, switch back to CPU Safe Mode."
-                "</div>",
+                f'<p class="mp-sidebar-line-sans">{esc(PROMPT_VARIANTS[prompt_variant]["description"])}</p>',
                 unsafe_allow_html=True,
             )
 
-        return selected_model, dataset_choice, sample_size, num_gpu, mode_display_name
+        # ── 3. DATASET ──
+        with st.container():
+            dataset_label = st.selectbox(
+                "dataset",
+                options=list(DATASET_CHOICES.keys()),
+                index=0,
+                help="Select dataset combination for evaluation",
+            )
+            dataset_choice = DATASET_CHOICES[dataset_label]
+
+            sample_label = st.selectbox(
+                "sample size",
+                options=list(SAMPLE_SIZES.keys()),
+                index=1,  # Small (100) default
+                help="Select subsample size for testing and latency measurement",
+            )
+            sample_size = SAMPLE_SIZES[sample_label]
+            # Filled by render_sidebar_dataset_summary() once the sample is loaded
+            st.session_state[_DATASET_SLOT_KEY] = st.empty()
+
+        # ── 4. DEVICE ──
+        with st.container():
+            gpu_label = hw.gpu_name if hw.has_gpu else "no dedicated GPU"
+            gpu_sub = (
+                f"{hw.gpu_vram_mb} MB VRAM · driver {hw.gpu_driver} · compute {hw.compute_cap}"
+                if hw.has_gpu
+                else "multi-threaded CPU execution"
+            )
+            st.markdown(
+                '<p class="mp-label">hardware</p>'
+                f'<p class="mp-sidebar-line" style="color:{INK};margin-top:0;">{esc(hw.cpu_name)}</p>'
+                f'<p class="mp-sidebar-line" style="margin-top:2px;">{hw.cpu_cores_physical} physical / '
+                f"{hw.cpu_cores_logical} logical cores · {hw.ram_total_gb:.1f} GB RAM "
+                f"({hw.ram_available_gb:.1f} GB free)</p>"
+                f'<p class="mp-sidebar-line" style="color:{INK};">{esc(gpu_label)}</p>'
+                f'<p class="mp-sidebar-line" style="margin-top:2px;">{esc(gpu_sub)}</p>',
+                unsafe_allow_html=True,
+            )
+
+        with st.container():
+            # Execution Mode Selection
+            device_options = ["CPU Safe Mode (Recommended)", "GPU Hardware Acceleration"]
+            default_index = 0 if hw.recommended_mode == "cpu" else 1
+
+            selected_mode_str = st.radio(
+                "device",
+                options=device_options,
+                index=default_index,
+                help=(
+                    "CPU Safe Mode executes inference on host processor (num_gpu=0), "
+                    "guaranteeing stability on Pascal (sm_61) GPUs and avoiding CUDA PTX buffer overruns. "
+                    "GPU Acceleration enables CUDA device offloading."
+                ),
+            )
+
+            num_gpu, mode_display_name = resolve_num_gpu(selected_mode_str)
+
+            # Factual feedback on selected mode
+            if num_gpu == 0:
+                text = (
+                    "num_gpu=0: inference runs on CPU threads only, for reproducibility "
+                    "and no CUDA runtime crashes."
+                )
+            else:
+                text = (
+                    "CUDA offloading enabled. If CUDA toolchain or PTX errors occur, "
+                    "switch back to CPU Safe Mode."
+                )
+            st.markdown(f'<p class="mp-sidebar-line-sans">{esc(text)}</p>', unsafe_allow_html=True)
+
+        return selected_model, dataset_choice, sample_size, num_gpu, mode_display_name, prompt_variant
+
+
+def render_sidebar_dataset_summary(df: pd.DataFrame | None) -> None:
+    """Write '100 msgs · 50 / 50' (malicious / safe) under the dataset controls."""
+    slot = st.session_state.get(_DATASET_SLOT_KEY)
+    if slot is None or df is None:
+        return
+    binary = df["true_label"].map(to_binary_label)
+    malicious = int((binary == "malicious").sum())
+    safe = int((binary == "safe").sum())
+    slot.markdown(
+        f'<p class="mp-sidebar-line" title="malicious / safe">{len(df):,} msgs · {malicious:,} / {safe:,}</p>',
+        unsafe_allow_html=True,
+    )

@@ -1,24 +1,14 @@
 """
 MarkerPhish — Header Component
 ================================
-Renders the static main page header with platform branding and academic context.
+Renders the top bar: product name on the left, live Ollama status on the right.
 """
 
-import streamlit as st
+from backend.evaluator import check_ollama_connection
+from config import OLLAMA_BASE_URL
+from ui.components import top_bar
 
 
 def render_header():
-    """Render the static platform header with title, subtitle, and academic tag."""
-    st.markdown(
-        """
-        <div class="platform-header">
-            <h1 class="platform-title">MarkerPhish</h1>
-            <p class="platform-subtitle">
-                Automated evaluation platform for large language models in text-based social engineering attack detection
-                (phishing & smishing) with concurrent hardware resource profiling.
-            </p>
-            <span class="academic-tag">Engineering Thesis Research System | Academic & Business Benchmark</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    """Render the full-width top bar with the real Ollama endpoint and status."""
+    top_bar(online=check_ollama_connection(), endpoint=OLLAMA_BASE_URL)

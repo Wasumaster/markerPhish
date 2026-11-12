@@ -2,7 +2,7 @@
 MarkerPhish — Detailed Single-Run Analysis Component
 =====================================================
 Comprehensive analysis for an individual benchmark run: primary binary metrics,
-visual confusion matrices, channel diagnostics, latency profiling, audit logs,
+confusion matrix, channel diagnostics, latency profiling, audit logs,
 and hardware execution telemetry.
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import numpy as np
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from backend.utils import (
@@ -19,8 +19,31 @@ from backend.utils import (
     format_result_label,
     list_saved_result_files,
     load_result_by_filename,
+    report_cold_start,
+    report_prompt_variant,
 )
-from config import is_binary_match
+from config import LEGACY_PROMPT_VARIANT, is_binary_match
+from ui.components import (
+    DASH,
+    cell,
+    data_table,
+    esc,
+    fmt_int,
+    fmt_mb,
+    fmt_pct,
+    fmt_rate,
+    fmt_ratio,
+    fmt_seconds,
+    html_block,
+    kv_table,
+    legend_row,
+    note,
+    page_title,
+    plot,
+    section_label,
+    section_title,
+)
+from ui.theme import FONT_MONO, INK, MALICIOUS, RULE, SAFE, SURFACE
 
 
 def render_results(report: dict) -> None:
@@ -44,264 +67,214 @@ def render_results(report: dict) -> None:
         )
 
     # ──────────────────────────────────────────────
-    # Level 1: Primary Binary Threat Detection Performance
+    # Level 1: Binary threat detection metrics
     # ──────────────────────────────────────────────
-    st.markdown('<div class="section-title">Binary Threat Detection Performance</div>', unsafe_allow_html=True)
-
-    b1, b2, b3, b4 = st.columns(4)
-    with b1:
-        st.metric(
-            "Binary Accuracy",
-            f"{cls.get('accuracy', 0.0):.2%}",
-            help="Overall proportion of correct classifications (Threats vs. Safe messages)",
-        )
-    with b2:
-        st.metric(
-            "Threat Precision",
-            f"{cls.get('precision', 0.0):.2%}",
-            help="Of messages flagged as threats, percentage that were genuinely malicious (TP / (TP + FP))",
-        )
-    with b3:
-        st.metric(
-            "Threat Recall (Detection Rate)",
-            f"{cls.get('recall', 0.0):.2%}",
-            help="Of all actual threats, percentage successfully intercepted (TP / (TP + FN))",
-        )
-    with b4:
-        st.metric(
-            "Threat F1-Score",
-            f"{cls.get('f1', 0.0):.2%}",
-            help="Harmonic mean of threat precision and threat recall",
-        )
-
-    # Secondary diagnostic metrics
-    s1, s2, s3, s4 = st.columns(4)
-    with s1:
-        st.metric(
-            "Safe Specificity",
-            f"{cls.get('specificity', 0.0):.2%}",
-            help="True Negative Rate: proportion of legitimate safe messages correctly passed (TN / (TN + FP))",
-        )
-    with s2:
-        st.metric(
-            "Threat Miss Rate (FNR)",
-            f"{cls.get('miss_rate', 0.0):.2%}",
-            help="False Negative Rate: proportion of threats erroneously allowed through as safe (FN / (TP + FN))",
-        )
-    with s3:
-        st.metric(
-            "False Alarm Rate (FPR)",
-            f"{cls.get('false_alarm_rate', 0.0):.2%}",
-            help="False Positive Rate: proportion of safe messages erroneously flagged as threats (FP / (TN + FP))",
-        )
-    with s4:
-        st.metric(
-            "Failed / Unknown Inferences",
-            f"{cls.get('unknown_predictions', 0)}",
-            help="Number of requests that timed out or generated unparsable output",
+    section_title("Detection", "Binary threat detection: malicious (phishing or smishing) vs. safe.")
+    with st.container():
+        section_label("metrics")
+        data_table(
+            ["metric", "value", "definition"],
+            [
+                ["binary accuracy", fmt_pct(cls.get("accuracy")), "Share of correct decisions (threats and safe messages)"],
+                ["threat precision", fmt_pct(cls.get("precision")), "Of messages flagged as threats, share that were malicious: TP / (TP + FP)"],
+                ["threat recall", fmt_pct(cls.get("recall")), "Of all actual threats, share intercepted: TP / (TP + FN)"],
+                ["threat F1", fmt_pct(cls.get("f1")), "Harmonic mean of threat precision and recall"],
+                ["safe specificity", fmt_pct(cls.get("specificity")), "Safe messages correctly passed: TN / (TN + FP)"],
+                ["threat miss rate (FNR)", fmt_pct(cls.get("miss_rate")), "Threats let through as safe: FN / (TP + FN)"],
+                ["false alarm rate (FPR)", fmt_pct(cls.get("false_alarm_rate")), "Safe messages flagged as threats: FP / (TN + FP)"],
+                ["failed / unknown inferences", fmt_int(cls.get("unknown_predictions")), "Requests that timed out or gave unparsable output"],
+            ],
+            numeric={1},
+            sans={2},
         )
 
     # ──────────────────────────────────────────────
-    # Level 2: Visual Diagnostics (Confusion Matrix & Distributions)
+    # Level 2: Confusion matrix & distributions
     # ──────────────────────────────────────────────
-    col_cm, col_dist = st.columns([1.2, 1.0])
+    col_cm, col_dist = st.columns([1.0, 1.2], gap="large")
 
     with col_cm:
-        st.markdown("#### Binary Confusion Matrix")
+        section_label("confusion matrix")
         binary_cm = cls.get("binary_confusion_matrix")
         if binary_cm:
-            cm_matrix = np.array(binary_cm)
-            labels_disp = ["Malicious (Threat)", "Safe (Legitimate)"]
-
-            fig_cm = px.imshow(
-                cm_matrix,
-                text_auto=True,
-                x=labels_disp,
-                y=labels_disp,
-                color_continuous_scale=[
-                    [0.0, "#0f172a"],
-                    [0.5, "#1e3a8a"],
-                    [1.0, "#2563eb"],
+            cm = np.array(binary_cm)
+            data_table(
+                ["true \\ predicted", "malicious", "safe"],
+                [
+                    [cell("malicious", color=MALICIOUS, bold=True), str(int(cm[0][0])), str(int(cm[0][1]))],
+                    [cell("safe", color=SAFE, bold=True), str(int(cm[1][0])), str(int(cm[1][1]))],
                 ],
-                labels=dict(x="Predicted Class", y="Ground Truth Class", color="Count"),
+                numeric={1, 2},
             )
-            fig_cm.update_layout(
-                plot_bgcolor="rgba(0,0,0,0)",
-                paper_bgcolor="rgba(0,0,0,0)",
-                font=dict(family="Inter", color="#f1f5f9", size=12),
-                height=340,
-                margin=dict(t=30, b=40, l=40, r=20),
+            note(
+                f"TP {cls.get('tp', DASH)} · TN {cls.get('tn', DASH)} · "
+                f"FP {cls.get('fp', DASH)} · FN {cls.get('fn', DASH)}",
+                mono=True,
             )
-            st.plotly_chart(fig_cm, width="stretch")
-            st.caption(
-                f"Evaluation Breakdown: "
-                f"True Positives: {cls.get('tp', 0)} | "
-                f"True Negatives: {cls.get('tn', 0)} | "
-                f"False Positives: {cls.get('fp', 0)} | "
-                f"False Negatives: {cls.get('fn', 0)}"
-            )
+        else:
+            note(DASH, mono=True)
 
     with col_dist:
-        st.markdown("#### Threat vs. Safe Distribution Comparison")
         t_dist = dist.get("true_binary", {})
         p_dist = dist.get("predicted_binary", {})
-
         if t_dist and p_dist:
-            dist_df = pd.DataFrame(
+            groups = ["ground truth", "predicted"]
+            fig_dist = go.Figure(
                 [
-                    {"Subset": "Ground Truth", "Class": "Malicious", "Count": t_dist.get("malicious", 0)},
-                    {"Subset": "Ground Truth", "Class": "Safe", "Count": t_dist.get("safe", 0)},
-                    {"Subset": "Model Predicted", "Class": "Malicious", "Count": p_dist.get("malicious", 0)},
-                    {"Subset": "Model Predicted", "Class": "Safe", "Count": p_dist.get("safe", 0)},
+                    go.Bar(
+                        name="malicious",
+                        x=groups,
+                        y=[t_dist.get("malicious", 0), p_dist.get("malicious", 0)],
+                        marker=dict(color=MALICIOUS, line=dict(width=0)),
+                        text=[t_dist.get("malicious", 0), p_dist.get("malicious", 0)],
+                        textposition="outside",
+                        cliponaxis=False,
+                    ),
+                    go.Bar(
+                        name="safe",
+                        x=groups,
+                        y=[t_dist.get("safe", 0), p_dist.get("safe", 0)],
+                        marker=dict(color=SAFE, line=dict(width=0)),
+                        text=[t_dist.get("safe", 0), p_dist.get("safe", 0)],
+                        textposition="outside",
+                        cliponaxis=False,
+                    ),
                 ]
             )
-
-            fig_dist = px.bar(
-                dist_df,
-                x="Subset",
-                y="Count",
-                color="Class",
-                barmode="group",
-                color_discrete_map={"Malicious": "#ef4444", "Safe": "#10b981"},
-            )
-            fig_dist.update_layout(
-                plot_bgcolor="rgba(0,0,0,0)",
-                paper_bgcolor="rgba(0,0,0,0)",
-                font=dict(family="Inter", color="#94a3b8"),
-                height=340,
-                margin=dict(t=30, b=40, l=20, r=20),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                xaxis=dict(gridcolor="#1e293b", title=""),
-                yaxis=dict(gridcolor="#1e293b", title="Count"),
-            )
-            st.plotly_chart(fig_dist, width="stretch")
+            fig_dist.update_layout(barmode="group", yaxis_title="messages", bargroupgap=0.08)
+            plot(fig_dist, caption="ground truth vs predicted", height=300)
+            legend_row([("malicious", MALICIOUS), ("safe", SAFE)])
 
     # ──────────────────────────────────────────────
-    # Level 3: Distribution-Channel Breakdown
+    # Level 3: Distribution-channel breakdown
     # ──────────────────────────────────────────────
-    with st.expander("Channel-Level Breakdown (Phishing vs. Smishing vs. Valid)", expanded=False):
+    with st.expander("channel breakdown (phishing / smishing / valid)", expanded=False):
+        if report_prompt_variant(report) == LEGACY_PROMPT_VARIANT:
+            st.caption("Legacy report: the model chose the channel label (phishing / smishing / valid) itself.")
+        else:
+            st.caption(
+                "The model decides only malicious vs. valid. The channel (email / SMS) is derived from the "
+                "dataset source, so a detected threat is labelled phishing for emails and smishing for SMS."
+            )
         ch_metrics = cls.get("channel_metrics", {})
         if ch_metrics and "per_class" in ch_metrics:
-            ch_df = pd.DataFrame(ch_metrics["per_class"]).T.reset_index()
-            ch_df.columns = ["Channel", "Precision", "Recall", "F1-Score", "Support"]
-            st.dataframe(
-                ch_df.style.format(
-                    {
-                        "Precision": "{:.4f}",
-                        "Recall": "{:.4f}",
-                        "F1-Score": "{:.4f}",
-                        "Support": "{:.0f}",
-                    }
-                ),
-                width="stretch",
-                hide_index=True,
+            section_label("per channel")
+            data_table(
+                ["channel", "precision", "recall", "F1", "support"],
+                [
+                    [
+                        name,
+                        fmt_ratio(stats.get("precision")),
+                        fmt_ratio(stats.get("recall")),
+                        fmt_ratio(stats.get("f1-score")),
+                        fmt_int(stats.get("support")),
+                    ]
+                    for name, stats in ch_metrics["per_class"].items()
+                ],
+                numeric={1, 2, 3, 4},
+                max_width="640px",
             )
 
         if "confusion_matrix" in ch_metrics:
-            st.markdown("**Channel Multi-Class Confusion Matrix**")
             ch_cm = np.array(ch_metrics["confusion_matrix"])
             ch_labels = ch_metrics.get("labels", ["phishing", "smishing", "valid"])
-            fig_ch_cm = px.imshow(
-                ch_cm,
-                text_auto=True,
-                x=ch_labels,
-                y=ch_labels,
-                color_continuous_scale="Blues",
-                labels=dict(x="Predicted Channel", y="True Channel", color="Count"),
+            fig_ch_cm = go.Figure(
+                go.Heatmap(
+                    z=ch_cm,
+                    x=ch_labels,
+                    y=ch_labels,
+                    colorscale=[[0.0, SURFACE], [1.0, SAFE]],
+                    showscale=False,
+                    xgap=1,
+                    ygap=1,
+                    text=ch_cm,
+                    texttemplate="%{text}",
+                    textfont=dict(family=FONT_MONO, size=13, color=INK),
+                    hovertemplate="true %{y} · predicted %{x}: %{z}<extra></extra>",
+                )
             )
-            fig_ch_cm.update_layout(
-                plot_bgcolor="rgba(0,0,0,0)",
-                paper_bgcolor="rgba(0,0,0,0)",
-                font=dict(family="Inter", color="#f1f5f9"),
-                height=300,
-                margin=dict(t=20, b=30, l=40, r=20),
-            )
-            st.plotly_chart(fig_ch_cm, width="stretch")
+            fig_ch_cm.update_layout(xaxis_title="predicted channel", yaxis_title="true channel")
+            fig_ch_cm.update_yaxes(autorange="reversed")
+            plot(fig_ch_cm, caption="channel confusion matrix", height=300)
 
     # ──────────────────────────────────────────────
-    # Level 4: Computational Overhead & Resource Profiling
+    # Level 4: Computational overhead
     # ──────────────────────────────────────────────
-    st.markdown('<div class="section-title">Computational Overhead & Resource Profiling</div>', unsafe_allow_html=True)
-
-    r1, r2, r3, r4 = st.columns(4)
-    with r1:
-        st.metric("Mean Latency", f"{res.get('avg_latency_s', 0.0):.3f}s")
-    with r2:
-        st.metric("Median Latency", f"{res.get('median_latency_s', 0.0):.3f}s")
-    with r3:
-        st.metric("95th Percentile (P95)", f"{res.get('p95_latency_s', 0.0):.3f}s")
-    with r4:
-        st.metric("Throughput", f"{res.get('throughput_msgs_per_min', 0.0):.1f} msg/min")
-
-    r5, r6, r7, r8 = st.columns(4)
-    with r5:
-        st.metric("Model Storage Size", f"{res.get('model_size_mb', 0.0):.1f} MB")
-    with r6:
-        st.metric("Total Execution Time", f"{res.get('total_time_s', 0.0):.1f}s")
-    with r7:
-        st.metric("Minimum Latency", f"{res.get('min_latency_s', 0.0):.3f}s")
-    with r8:
-        st.metric("Maximum Latency", f"{res.get('max_latency_s', 0.0):.3f}s")
+    section_title("Cost", "Latency per message and throughput; model loading is reported separately as cold start.")
+    with st.container():
+        section_label("computational overhead")
+        data_table(
+            ["metric", "value"],
+            [
+                ["mean latency", fmt_seconds(res.get("avg_latency_s"), 3)],
+                ["median latency", fmt_seconds(res.get("median_latency_s"), 3)],
+                ["p95 latency", fmt_seconds(res.get("p95_latency_s"), 3)],
+                ["minimum latency", fmt_seconds(res.get("min_latency_s"), 3)],
+                ["maximum latency", fmt_seconds(res.get("max_latency_s"), 3)],
+                ["throughput", fmt_rate(res.get("throughput_msgs_per_min"))],
+                ["total execution time", fmt_seconds(res.get("total_time_s"), 1)],
+                ["cold start (model load)", fmt_seconds(report_cold_start(report))],
+                ["model storage size", fmt_mb(res.get("model_size_mb"))],
+            ],
+            numeric={1},
+            max_width="640px",
+        )
 
     # Latency histogram
     raw_preds = report.get("raw_predictions", [])
     if raw_preds:
         latencies = [p["latency_s"] for p in raw_preds if "latency_s" in p]
         if latencies:
-            fig_lat = px.histogram(
-                x=latencies,
-                nbins=25,
-                title="Inference Latency Distribution (seconds)",
-                labels={"x": "Latency (seconds)", "y": "Frequency"},
-                color_discrete_sequence=["#3b82f6"],
+            fig_lat = go.Figure(
+                go.Histogram(
+                    x=latencies,
+                    nbinsx=25,
+                    marker=dict(color=INK, line=dict(color=SURFACE, width=1)),
+                    hovertemplate="%{x} s: %{y}<extra></extra>",
+                )
             )
-            fig_lat.add_vline(
-                x=res.get("median_latency_s", 0.0),
-                line_dash="dash",
-                line_color="#10b981",
-                annotation_text="Median",
-                annotation_position="top left",
-            )
-            fig_lat.add_vline(
-                x=res.get("p95_latency_s", 0.0),
-                line_dash="dot",
-                line_color="#f59e0b",
-                annotation_text="P95",
-                annotation_position="top right",
-            )
-            fig_lat.update_layout(
-                plot_bgcolor="rgba(0,0,0,0)",
-                paper_bgcolor="rgba(0,0,0,0)",
-                font=dict(family="Inter", color="#94a3b8"),
-                height=280,
-                margin=dict(t=40, b=30, l=40, r=20),
-                xaxis=dict(gridcolor="#1e293b"),
-                yaxis=dict(gridcolor="#1e293b"),
-            )
-            st.plotly_chart(fig_lat, width="stretch")
+            for value, label, position in (
+                (res.get("median_latency_s"), "median", "top left"),
+                (res.get("p95_latency_s"), "p95", "top right"),
+            ):
+                if value is not None:
+                    fig_lat.add_vline(
+                        x=value,
+                        line_dash="dash",
+                        line_color=RULE,
+                        line_width=1,
+                        annotation_text=f"{label} {value:.2f} s",
+                        annotation_position=position,
+                        annotation_font=dict(family=FONT_MONO, size=11, color=INK),
+                    )
+            fig_lat.update_layout(xaxis_title="latency (s)", yaxis_title="messages")
+            plot(fig_lat, caption="inference latency distribution", height=280)
 
     # ──────────────────────────────────────────────
     # Level 5: Audit Trail, Hardware & Export
     # ──────────────────────────────────────────────
     hw_prof = report.get("hardware_profile")
     if hw_prof:
-        with st.expander("Host Hardware Profile During Benchmark", expanded=False):
-            hw_col1, hw_col2 = st.columns(2)
-            with hw_col1:
-                st.markdown(f"**CPU:** {hw_prof.get('cpu_name', 'Unknown')}")
-                st.markdown(
-                    f"**Cores:** {hw_prof.get('cpu_cores_physical', 'N/A')} physical, "
-                    f"{hw_prof.get('cpu_cores_logical', 'N/A')} logical"
-                )
-                st.markdown(f"**RAM:** {hw_prof.get('ram_total_gb', 0.0):.1f} GB total")
-            with hw_col2:
-                gpu_name = hw_prof.get('gpu_name') or "None / CPU Mode"
-                st.markdown(f"**GPU:** {gpu_name}")
-                if hw_prof.get("has_gpu"):
-                    st.markdown(f"**VRAM:** {hw_prof.get('gpu_vram_mb', 0)} MB | Compute: {hw_prof.get('compute_cap', 'N/A')}")
-                    st.markdown(f"**Driver:** {hw_prof.get('gpu_driver', 'N/A')}")
+        with st.expander("host hardware profile during benchmark", expanded=False):
+            pairs = [
+                ("cpu", hw_prof.get("cpu_name", "Unknown")),
+                (
+                    "cores",
+                    f"{hw_prof.get('cpu_cores_physical', DASH)} physical, "
+                    f"{hw_prof.get('cpu_cores_logical', DASH)} logical",
+                ),
+                ("ram", f"{hw_prof.get('ram_total_gb', 0.0):.1f} GB total"),
+                ("gpu", hw_prof.get("gpu_name") or "None / CPU Mode"),
+            ]
+            if hw_prof.get("has_gpu"):
+                pairs += [
+                    ("vram", f"{hw_prof.get('gpu_vram_mb', 0)} MB"),
+                    ("compute", hw_prof.get("compute_cap", DASH)),
+                    ("driver", hw_prof.get("gpu_driver", DASH)),
+                ]
+            kv_table(pairs, headers=("component", "value"))
 
-    with st.expander("Detailed Inference Records (Audit Log)", expanded=False):
+    with st.expander("detailed inference records (audit log)", expanded=False):
         if raw_preds:
             pred_table = pd.DataFrame(raw_preds)
             if "is_correct_binary" not in pred_table.columns and "true" in pred_table.columns:
@@ -311,7 +284,7 @@ def render_results(report: dict) -> None:
                 )
             st.dataframe(pred_table, width="stretch", height=350)
 
-    with st.expander("Full Scikit-Learn Report Output", expanded=False):
+    with st.expander("full scikit-learn report output", expanded=False):
         st.code(cls.get("classification_report_text", "N/A"), language="text")
 
 
@@ -320,12 +293,14 @@ def render_single_run_view() -> None:
     Render the complete single-run analysis tab view including the report selector,
     metrics inspection, and JSON export.
     """
+    page_title("Results", "Detection quality and computational cost of one saved evaluation run.")
+
     available_files = list_saved_result_files()
 
     if not available_files:
         st.info(
             "No saved evaluation reports found in the results/ directory. "
-            "Execute an evaluation run in the Run Evaluation tab to generate benchmark data."
+            "Execute an evaluation run in the Run tab to generate benchmark data."
         )
         return
 
@@ -337,10 +312,10 @@ def render_single_run_view() -> None:
 
     default_idx = available_files.index(current_selected)
 
-    col_select, col_refresh = st.columns([4, 1])
+    col_select, col_refresh = st.columns([4, 1], vertical_alignment="bottom")
     with col_select:
         selected_file = st.selectbox(
-            "Select Evaluation Report",
+            "report",
             options=available_files,
             index=default_idx,
             format_func=format_result_label,
@@ -348,8 +323,7 @@ def render_single_run_view() -> None:
         )
 
     with col_refresh:
-        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-        if st.button("Refresh Archive", width="stretch"):
+        if st.button("Refresh", width="stretch"):
             st.rerun()
 
     # Dynamically load newly selected report if changed or not yet loaded
@@ -367,28 +341,22 @@ def render_single_run_view() -> None:
     if report:
         env_str = report.get("execution_mode", "CPU Safe Mode")
         target_model = report.get("model_name", "Unknown Model")
+        variant_str = report_prompt_variant(report)
 
-        st.markdown(
-            f"""
-            <div style="display: flex; justify-content: space-between; align-items: center; margin: 12px 0 20px 0; padding: 10px 16px; background: #131d2e; border: 1px solid #1e293b; border-radius: 6px;">
-                <div>
-                    <span style="font-size: 0.95rem; font-weight: 600; color: #f8fafc;">Active Report: <code>{selected_file}</code></span>
-                </div>
-                <div style="font-size: 0.85rem; color: #94a3b8;">
-                    Model: <strong style="color: #f1f5f9;">{target_model}</strong> | Environment: <strong style="color: #38bdf8;">{env_str}</strong>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        with st.container():
+            section_label("active report")
+            html_block(
+                '<p class="mp-sidebar-line" style="margin:0;">'
+                f'<span class="mp-mono" style="color:{INK};">{esc(selected_file)}</span> · '
+                f"model {esc(target_model)} · prompt {esc(variant_str)} · {esc(env_str)}</p>"
+            )
 
         render_results(report)
 
-        st.divider()
         clean_name = target_model.replace(":", "_").replace("/", "_")
         st.download_button(
-            "Export Active Report (JSON)",
+            "Export active report (JSON)",
             data=json.dumps(report, indent=2, default=str),
-            file_name=f"markerphish_report_{clean_name}.json",
+            file_name=f"markerphish_report_{clean_name}_{variant_str}.json",
             mime="application/json",
         )

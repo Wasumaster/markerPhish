@@ -1,24 +1,44 @@
 """
 MarkerPhish — Multi-Model Comparison Component
 ===============================================
-Enables concurrent benchmark comparison across multiple evaluation runs (supporting 6+
-models simultaneously). Features a dense summary metrics matrix, interactive Plotly
-trade-off visualisations, and per-class channel breakdowns.
+Compares several evaluation runs: one summary table (best value per column in
+bold), detection-vs-cost scatter plots, and per-class channel breakdowns.
 """
 
 from __future__ import annotations
 
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
 from backend.utils import (
     ensure_report_compatibility,
-    format_result_label,
     list_saved_result_files,
     load_result_by_filename,
+    report_cold_start,
+    report_prompt_variant,
 )
+from config import LEGACY_PROMPT_VARIANT
+from ui.components import (
+    DASH,
+    best_flags,
+    cell,
+    data_table,
+    esc,
+    fmt_int,
+    fmt_mb,
+    fmt_pct,
+    fmt_rate,
+    fmt_seconds,
+    marker_legend,
+    page_title,
+    plot,
+    run_chip_label,
+    run_timestamp,
+    section_label,
+    section_title,
+)
+from ui.theme import CLASS_COLORS, FONT_MONO, INK, SURFACE
 
 
 def _extract_report_summary(filename: str, report: dict) -> dict:
@@ -30,6 +50,7 @@ def _extract_report_summary(filename: str, report: dict) -> dict:
 
     model_name = report.get("model_name", "Unknown Model")
     exec_mode = report.get("execution_mode", "CPU Safe Mode")
+    prompt_variant = report_prompt_variant(report)
 
     # Channel metrics
     ch_metrics = cls.get("channel_metrics", {}).get("per_class", {})
@@ -40,6 +61,8 @@ def _extract_report_summary(filename: str, report: dict) -> dict:
     return {
         "filename": filename,
         "model_name": model_name,
+        "prompt_variant": prompt_variant,
+        "model_variant": f"{model_name} [{prompt_variant}]",
         "execution_mode": exec_mode,
         "model_size_mb": float(res.get("model_size_mb", 0.0)),
         # Primary Binary Detection Metrics
@@ -56,6 +79,9 @@ def _extract_report_summary(filename: str, report: dict) -> dict:
         "p95_latency_s": float(res.get("p95_latency_s", 0.0)),
         "throughput_msgs_per_min": float(res.get("throughput_msgs_per_min", 0.0)),
         "total_time_s": float(res.get("total_time_s", 0.0)),
+        "cold_start_s": report_cold_start(report),
+        # Not recorded by the evaluator yet; shown as "—" when absent
+        "peak_ram_mb": res.get("peak_ram_mb"),
         "total_evaluated": int(cls.get("total_evaluated", 0)),
         "unknown_predictions": int(cls.get("unknown_predictions", 0)),
         # Channel-Level Breakdown
@@ -71,18 +97,57 @@ def _extract_report_summary(filename: str, report: dict) -> dict:
     }
 
 
+def _summary_table(comp_df: pd.DataFrame) -> None:
+    """One row per run; the best value in each metric column is set in bold."""
+    # (header, column key, formatter, preference for bold or None)
+    spec = [
+        ("F1", "f1", fmt_pct, "max"),
+        ("recall", "recall", fmt_pct, "max"),
+        ("precision", "precision", fmt_pct, "max"),
+        ("accuracy", "accuracy", fmt_pct, "max"),
+        ("specificity", "specificity", fmt_pct, "max"),
+        ("false alarm", "false_alarm_rate", fmt_pct, "min"),
+        ("p95 latency", "p95_latency_s", fmt_seconds, "min"),
+        ("mean latency", "avg_latency_s", fmt_seconds, "min"),
+        ("throughput", "throughput_msgs_per_min", fmt_rate, "max"),
+        ("cold start", "cold_start_s", fmt_seconds, "min"),
+        ("peak RAM", "peak_ram_mb", fmt_mb, "min"),
+        ("size", "model_size_mb", fmt_mb, "min"),
+        ("unknown", "unknown_predictions", fmt_int, "min"),
+        ("messages", "total_evaluated", fmt_int, None),
+    ]
+    best = {key: best_flags(comp_df[key].tolist(), pref) for _, key, _, pref in spec if pref}
+
+    headers = ["model", "run", "prompt"] + [h for h, *_ in spec] + ["hardware"]
+    rows = []
+    for i, row in enumerate(comp_df.itertuples(index=False)):
+        legacy = row.prompt_variant == LEGACY_PROMPT_VARIANT
+        model_html = esc(row.model_name) + (' <span class="mp-faint">legacy</span>' if legacy else "")
+        cells = [
+            cell(model_html, raw=True),
+            run_timestamp(row.filename) or DASH,
+            DASH if legacy else row.prompt_variant,
+        ]
+        for _, key, fmt, pref in spec:
+            value = getattr(row, key)
+            cells.append(cell(fmt(value), bold=bool(pref and best[key][i])))
+        cells.append(row.execution_mode)
+        rows.append(cells)
+
+    numeric = set(range(3, 3 + len(spec)))
+    for r in rows:
+        r[0]["html"] = f'<span class="nowrap">{r[0]["html"]}</span>'
+    data_table(headers, rows, numeric=numeric)
+
+
 def render_multi_comparison_view() -> None:
     """
-    Render the comprehensive multi-model benchmark comparison dashboard.
-    Supports loading, matrix tabling, trade-off plotting, and channel breakdowns
-    for 6 or more benchmark runs simultaneously.
+    Render the multi-run benchmark comparison: run selection, summary table,
+    trade-off charts and per-class breakdown.
     """
-    st.markdown('<div class="section-title">Multi-Model Comparative Benchmarking</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="comparison-subtitle">'
-        "Cross-model performance analysis evaluating detection effectiveness against computational overhead."
-        "</div>",
-        unsafe_allow_html=True,
+    page_title(
+        "Compare runs",
+        "Detection quality against cost, for the runs you pick. Best value in each column is set in bold.",
     )
 
     available_files = list_saved_result_files()
@@ -90,24 +155,35 @@ def render_multi_comparison_view() -> None:
         st.info("No saved evaluation reports found in the results/ directory to compare.")
         return
 
+    # Load every report once: used for chip labels and for the selected runs
+    reports = {f: load_result_by_filename(f) for f in available_files}
+    chip_labels = {
+        f: run_chip_label(
+            f,
+            (rep or {}).get("model_name"),
+            report_prompt_variant(rep or {}),
+            LEGACY_PROMPT_VARIANT,
+        )
+        for f, rep in reports.items()
+    }
+
     # ──────────────────────────────────────────────
-    # 1. Multi-Select Run Selection (Supports 6+ concurrently)
+    # 1. Run selection
     # ──────────────────────────────────────────────
-    ctrl_col1, ctrl_col2 = st.columns([4, 1])
+    ctrl_col1, ctrl_col2 = st.columns([6, 1], vertical_alignment="bottom")
     with ctrl_col1:
         # Default to all available benchmark files (or the latest 6+ if many exist)
         default_selection = available_files[: max(6, len(available_files))]
         selected_files = st.multiselect(
-            "Select Evaluation Runs for Comparative Benchmark",
+            "runs",
             options=available_files,
             default=default_selection,
-            format_func=format_result_label,
+            format_func=lambda f: chip_labels.get(f, f),
             help="Select 2 or more evaluation reports to generate comparative analytics. Supports 6+ runs concurrently.",
         )
 
     with ctrl_col2:
-        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-        if st.button("Select All Runs", width="stretch"):
+        if st.button("select all", type="tertiary"):
             st.session_state["multi_selected_files"] = available_files
             st.rerun()
 
@@ -115,13 +191,12 @@ def render_multi_comparison_view() -> None:
         st.warning("Select at least one benchmark report to inspect metrics.")
         return
 
-    # Load and compile all selected reports
+    # Compile all selected reports
     compiled_data = []
     for f in selected_files:
-        rep = load_result_by_filename(f)
+        rep = reports.get(f)
         if rep:
-            summary = _extract_report_summary(f, rep)
-            compiled_data.append(summary)
+            compiled_data.append(_extract_report_summary(f, rep))
 
     if not compiled_data:
         st.error("Failed to load data for selected evaluation files.")
@@ -129,59 +204,25 @@ def render_multi_comparison_view() -> None:
 
     comp_df = pd.DataFrame(compiled_data)
 
-    # Short label for cleaner plots: Model Name + File Suffix
+    # Short label: Model [variant] + run timestamp
     def make_run_label(row: pd.Series) -> str:
         fn = row["filename"]
-        # Extract timestamp part if present
         stem = fn[:-5] if fn.endswith(".json") else fn
         parts = stem.split("_")
         ts = f"{parts[-2]}_{parts[-1]}" if len(parts) >= 3 else stem
-        return f"{row['model_name']} ({ts})"
+        return f"{row['model_variant']} ({ts})"
 
     comp_df["run_label"] = comp_df.apply(make_run_label, axis=1)
 
     # ──────────────────────────────────────────────
-    # 2. Executive KPI Summary Cards
+    # 2. Summary table (replaces the KPI cards and the summary matrix)
     # ──────────────────────────────────────────────
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-    best_f1_row = comp_df.loc[comp_df["f1"].idxmax()]
-    best_rec_row = comp_df.loc[comp_df["recall"].idxmax()]
-    best_p95_row = comp_df.loc[comp_df["p95_latency_s"].idxmin()]
-    best_tput_row = comp_df.loc[comp_df["throughput_msgs_per_min"].idxmax()]
+    _summary_table(comp_df)
 
-    with kpi1:
-        st.metric(
-            "Highest Threat F1-Score",
-            f"{best_f1_row['f1']:.2%}",
-            f"{best_f1_row['model_name']}",
-        )
-    with kpi2:
-        st.metric(
-            "Highest Threat Recall",
-            f"{best_rec_row['recall']:.2%}",
-            f"{best_rec_row['model_name']}",
-        )
-    with kpi3:
-        st.metric(
-            "Lowest P95 Latency",
-            f"{best_p95_row['p95_latency_s']:.2f}s",
-            f"{best_p95_row['model_name']}",
-        )
-    with kpi4:
-        st.metric(
-            "Peak Throughput",
-            f"{best_tput_row['throughput_msgs_per_min']:.1f} msg/m",
-            f"{best_tput_row['model_name']}",
-        )
-
-    # ──────────────────────────────────────────────
-    # 3. Summary Metrics Matrix (Dense Side-by-Side Table)
-    # ──────────────────────────────────────────────
-    st.markdown('<div class="section-title">Summary Metrics Matrix</div>', unsafe_allow_html=True)
-    st.caption("Dense cross-model comparison of classification effectiveness and computational overhead.")
-
+    # CSV export of the comparison matrix for external thesis analysis
     matrix_cols = [
         "run_label",
+        "prompt_variant",
         "execution_mode",
         "model_size_mb",
         "accuracy",
@@ -191,11 +232,12 @@ def render_multi_comparison_view() -> None:
         "specificity",
         "p95_latency_s",
         "throughput_msgs_per_min",
+        "cold_start_s",
     ]
-
     display_matrix = comp_df[matrix_cols].copy()
     display_matrix.columns = [
         "Model / Run",
+        "Prompt Variant",
         "Hardware Mode",
         "Size (MB)",
         "Accuracy",
@@ -205,189 +247,135 @@ def render_multi_comparison_view() -> None:
         "Safe Specificity",
         "P95 Latency (s)",
         "Throughput (msg/min)",
+        "Cold Start (s)",
     ]
-
-    st.dataframe(
-        display_matrix.style.format(
-            {
-                "Size (MB)": "{:.1f}",
-                "Accuracy": "{:.2%}",
-                "Threat Precision": "{:.2%}",
-                "Threat Recall": "{:.2%}",
-                "Threat F1": "{:.2%}",
-                "Safe Specificity": "{:.2%}",
-                "P95 Latency (s)": "{:.2f}",
-                "Throughput (msg/min)": "{:.1f}",
-            }
-        ),
-        width="stretch",
-        hide_index=True,
-    )
-
-    # CSV Download for external thesis analysis
-    csv_data = display_matrix.to_csv(index=False).encode("utf-8")
+    csv_data = display_matrix.to_csv(index=False, na_rep="n/a").encode("utf-8")
     st.download_button(
-        "Export Comparison Matrix (CSV)",
+        "Export comparison (CSV)",
         data=csv_data,
         file_name="markerphish_multi_model_benchmark.csv",
         mime="text/csv",
     )
 
     # ──────────────────────────────────────────────
-    # 4. Interactive Plotly Trade-off Charts
+    # 3. Trade-off charts
     # ──────────────────────────────────────────────
-    st.markdown('<div class="section-title">Resource vs. Accuracy Trade-off Analysis</div>', unsafe_allow_html=True)
-
-    chart_col1, chart_col2 = st.columns(2)
+    chart_col1, chart_col2 = st.columns(2, gap="large")
+    max_size = max(comp_df["model_size_mb"].max(), 1.0)
 
     with chart_col1:
-        # Trade-off 1: Threat F1-Score vs. P95 Latency
-        fig_f1_lat = px.scatter(
-            comp_df,
-            x="p95_latency_s",
-            y="f1",
-            text="model_name",
-            color="model_name",
-            size="model_size_mb",
-            hover_data={
-                "model_name": True,
-                "execution_mode": True,
-                "f1": ":.2%",
-                "p95_latency_s": ":.2f",
-                "model_size_mb": ":.1f",
-                "throughput_msgs_per_min": ":.1f",
-            },
-            title="Threat F1-Score vs. P95 Latency (Bubble Size = Model Size)",
-            labels={
-                "p95_latency_s": "P95 Inference Latency (seconds) — Lower is better",
-                "f1": "Threat F1-Score — Higher is better",
-                "model_name": "Model",
-            },
+        # Threat F1 vs. P95 latency (marker size = model size)
+        fig_f1_lat = go.Figure(
+            go.Scatter(
+                x=comp_df["p95_latency_s"],
+                y=comp_df["f1"],
+                mode="markers+text",
+                text=comp_df["model_variant"],
+                textposition="top center",
+                textfont=dict(family=FONT_MONO, size=11, color=INK),
+                marker=dict(
+                    color=INK,
+                    size=8 + 16 * comp_df["model_size_mb"] / max_size,
+                    line=dict(width=1, color=SURFACE),
+                ),
+                customdata=comp_df[["execution_mode", "model_size_mb", "throughput_msgs_per_min"]],
+                hovertemplate=(
+                    "%{text}<br>F1 %{y:.2%} · p95 %{x:.2f} s<br>"
+                    "%{customdata[0]} · %{customdata[1]:.1f} MB · %{customdata[2]:.1f} msg/min<extra></extra>"
+                ),
+                cliponaxis=False,
+            )
         )
-        fig_f1_lat.update_traces(
-            textposition="top center",
-            marker=dict(line=dict(width=1, color="#1e293b")),
-        )
-        fig_f1_lat.update_layout(
-            plot_bgcolor="rgba(0,0,0,0)",
-            paper_bgcolor="rgba(0,0,0,0)",
-            font=dict(family="Inter", color="#94a3b8"),
-            height=380,
-            title_font_size=13,
-            margin=dict(t=40, b=30, l=40, r=20),
-            xaxis=dict(gridcolor="#1e293b"),
-            yaxis=dict(gridcolor="#1e293b", tickformat=".0%"),
-            showlegend=False,
-        )
-        st.plotly_chart(fig_f1_lat, width="stretch")
+        fig_f1_lat.update_layout(xaxis_title="p95 latency (s)", yaxis_title="threat F1")
+        fig_f1_lat.update_yaxes(tickformat=".0%")
+        plot(fig_f1_lat, caption="F1 vs p95 latency — up and to the left is better", height=380)
 
     with chart_col2:
-        # Trade-off 2: Throughput vs. Model Storage Size
-        fig_tput_size = px.scatter(
-            comp_df,
-            x="model_size_mb",
-            y="throughput_msgs_per_min",
-            text="model_name",
-            color="execution_mode",
-            size="accuracy",
-            hover_data={
-                "model_name": True,
-                "model_size_mb": ":.1f",
-                "throughput_msgs_per_min": ":.1f",
-                "accuracy": ":.2%",
-                "execution_mode": True,
-            },
-            title="Throughput vs. Model Storage Footprint (Bubble Size = Accuracy)",
-            labels={
-                "model_size_mb": "Model Storage Footprint (MB) — Lower is more efficient",
-                "throughput_msgs_per_min": "Throughput (messages / min) — Higher is better",
-                "execution_mode": "Execution Environment",
-            },
-        )
-        fig_tput_size.update_traces(
-            textposition="top center",
-            marker=dict(line=dict(width=1, color="#1e293b")),
-        )
+        # Throughput vs. model storage footprint (marker size = accuracy); one ink series per mode
+        modes = list(dict.fromkeys(comp_df["execution_mode"]))
+        traces = []
+        for idx, mode in enumerate(modes):
+            sub = comp_df[comp_df["execution_mode"] == mode]
+            traces.append(
+                go.Scatter(
+                    name=mode,
+                    x=sub["model_size_mb"],
+                    y=sub["throughput_msgs_per_min"],
+                    mode="markers+text",
+                    text=sub["model_variant"],
+                    textposition="top center",
+                    textfont=dict(family=FONT_MONO, size=11, color=INK),
+                    marker=dict(
+                        color=INK,
+                        symbol="circle" if idx == 0 else "circle-open",
+                        size=8 + 16 * sub["accuracy"],
+                        line=dict(width=1.5, color=INK if idx else SURFACE),
+                    ),
+                    customdata=sub[["accuracy"]],
+                    hovertemplate=(
+                        "%{text}<br>%{y:.1f} msg/min · %{x:.1f} MB<br>accuracy %{customdata[0]:.2%}"
+                        f"<br>{mode}<extra></extra>"
+                    ),
+                    cliponaxis=False,
+                )
+            )
+        fig_tput_size = go.Figure(traces)
         fig_tput_size.update_layout(
-            plot_bgcolor="rgba(0,0,0,0)",
-            paper_bgcolor="rgba(0,0,0,0)",
-            font=dict(family="Inter", color="#94a3b8"),
-            height=380,
-            title_font_size=13,
-            margin=dict(t=40, b=30, l=40, r=20),
-            xaxis=dict(gridcolor="#1e293b"),
-            yaxis=dict(gridcolor="#1e293b"),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            xaxis_title="model size on disk (MB)",
+            yaxis_title="throughput (msg/min)",
+            showlegend=len(modes) > 2,
         )
-        st.plotly_chart(fig_tput_size, width="stretch")
+        plot(fig_tput_size, caption="throughput vs model size — up and to the left is better", height=380)
+        if 1 < len(modes) <= 2:
+            marker_legend([(m, i == 0) for i, m in enumerate(modes)])
 
     # ──────────────────────────────────────────────
-    # 5. Per-Class Performance Breakdown (Phishing vs. Smishing vs. Valid)
+    # 4. Per-class performance breakdown
     # ──────────────────────────────────────────────
-    st.markdown('<div class="section-title">Per-Class Performance Breakdown</div>', unsafe_allow_html=True)
-    st.caption("Distribution-channel diagnostic effectiveness: comparing model capabilities across specific attack vectors.")
-
-    # Prepare melted DataFrame for grouped bar chart
-    class_rows = []
-    for _, row in comp_df.iterrows():
-        class_rows.append({"Model": row["run_label"], "Channel": "Phishing (Email)", "F1-Score": row["phishing_f1"], "Recall": row["phishing_recall"]})
-        class_rows.append({"Model": row["run_label"], "Channel": "Smishing (SMS)", "F1-Score": row["smishing_f1"], "Recall": row["smishing_recall"]})
-        class_rows.append({"Model": row["run_label"], "Channel": "Valid (Legitimate)", "F1-Score": row["valid_f1"], "Recall": row["valid_recall"]})
-
-    class_df = pd.DataFrame(class_rows)
-
-    fig_class = px.bar(
-        class_df,
-        x="Model",
-        y="F1-Score",
-        color="Channel",
-        barmode="group",
-        title="Per-Class F1-Score Comparison Across Evaluated Models",
-        color_discrete_map={
-            "Phishing (Email)": "#f43f5e",
-            "Smishing (SMS)": "#f59e0b",
-            "Valid (Legitimate)": "#10b981",
-        },
+    section_title(
+        "By class",
+        "Channel-level F1 per run: phishing (email), smishing (SMS) and valid messages.",
     )
-    fig_class.update_layout(
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Inter", color="#94a3b8"),
-        height=360,
-        title_font_size=13,
-        margin=dict(t=40, b=50, l=40, r=20),
-        xaxis=dict(gridcolor="#1e293b", tickangle=-15),
-        yaxis=dict(gridcolor="#1e293b", tickformat=".0%"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    )
-    st.plotly_chart(fig_class, width="stretch")
 
-    # Detailed Per-Class Matrix Table
-    with st.expander("Detailed Per-Class Performance Data Table", expanded=False):
-        detailed_cols = [
-            "run_label",
-            "phishing_precision",
-            "phishing_recall",
-            "phishing_f1",
-            "smishing_precision",
-            "smishing_recall",
-            "smishing_f1",
-            "valid_precision",
-            "valid_recall",
-            "valid_f1",
+    class_series = [
+        ("phishing", "phishing_f1", CLASS_COLORS["phishing"]),
+        ("smishing", "smishing_f1", CLASS_COLORS["smishing"]),
+        ("valid", "valid_f1", CLASS_COLORS["valid"]),
+    ]
+    fig_class = go.Figure(
+        [
+            go.Bar(
+                name=name,
+                x=comp_df["run_label"],
+                y=comp_df[key],
+                marker=dict(color=color, line=dict(width=0)),
+                hovertemplate=f"%{{x}}<br>{name} F1 %{{y:.2%}}<extra></extra>",
+            )
+            for name, key, color in class_series
         ]
-        det_df = comp_df[detailed_cols].copy()
-        det_df.columns = [
-            "Model / Run",
-            "Phishing Precision",
-            "Phishing Recall",
-            "Phishing F1",
-            "Smishing Precision",
-            "Smishing Recall",
-            "Smishing F1",
-            "Valid Precision",
-            "Valid Recall",
-            "Valid F1",
-        ]
-        format_dict = {c: "{:.2%}" for c in det_df.columns if c != "Model / Run"}
-        st.dataframe(det_df.style.format(format_dict), width="stretch", hide_index=True)
+    )
+    fig_class.update_layout(barmode="group", yaxis_title="F1", showlegend=True, bargroupgap=0.05)
+    fig_class.update_yaxes(tickformat=".0%")
+    fig_class.update_xaxes(tickangle=-15)
+    plot(fig_class, caption="per-class F1", height=360)
+
+    with st.expander("per-class data table", expanded=False):
+        section_label("precision / recall / F1 per channel")
+        data_table(
+            [
+                "run",
+                "phishing P", "phishing R", "phishing F1",
+                "smishing P", "smishing R", "smishing F1",
+                "valid P", "valid R", "valid F1",
+            ],
+            [
+                [
+                    row.run_label,
+                    fmt_pct(row.phishing_precision), fmt_pct(row.phishing_recall), fmt_pct(row.phishing_f1),
+                    fmt_pct(row.smishing_precision), fmt_pct(row.smishing_recall), fmt_pct(row.smishing_f1),
+                    fmt_pct(row.valid_precision), fmt_pct(row.valid_recall), fmt_pct(row.valid_f1),
+                ]
+                for row in comp_df.itertuples(index=False)
+            ],
+            numeric=set(range(1, 10)),
+        )
