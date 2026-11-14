@@ -15,24 +15,24 @@ from backend.evaluator import (
 
 def test_exact_model_name_match():
     models = [
-        {"name": "qwen2.5:7b", "size": 7},
-        {"name": "qwen2.5:1.5b", "size": 1},
-        {"name": "llama3.2:latest", "size": 3},
+        {"name": "acme-small:7b", "size": 7},
+        {"name": "acme-small:1b", "size": 1},
+        {"name": "zeta-chat:latest", "size": 3},
     ]
-    assert find_model_size(models, "qwen2.5:1.5b") == 1
-    assert find_model_size(models, "qwen2.5:7b") == 7
+    assert find_model_size(models, "acme-small:1b") == 1
+    assert find_model_size(models, "acme-small:7b") == 7
     # A bare prefix must not match another tag
-    assert find_model_size(models, "qwen2.5") == 0
-    assert find_model_size(models, "qwen2.5:1") == 0
+    assert find_model_size(models, "acme-small") == 0
+    assert find_model_size(models, "acme-small:1") == 0
     # Untagged name means ":latest"
-    assert find_model_size(models, "llama3.2") == 3
+    assert find_model_size(models, "zeta-chat") == 3
     assert find_model_size([], "x") == 0
 
 
 def test_connection_and_model_listing(fake_ollama):
     assert check_ollama_connection()
     names = [m["name"] for m in list_available_models()]
-    assert "qwen2.5:1.5b" in names
+    assert "acme-small:1b" in names
     fake_ollama.online = False
     assert not check_ollama_connection()
     assert list_available_models() == []
@@ -41,7 +41,7 @@ def test_connection_and_model_listing(fake_ollama):
 def test_classify_message_payload_is_deterministic(fake_ollama):
     fake_ollama.responder = lambda model, prompt, body: '{"label": "malicious"}'
     predicted, raw, latency, meta = classify_message(
-        "qwen2.5:1.5b", "Pay the customs fee", num_gpu=0, channel="sms", prompt_variant="zeroshot"
+        "acme-small:1b", "Pay the customs fee", num_gpu=0, channel="sms", prompt_variant="zeroshot"
     )
     assert predicted == "smishing"
     assert meta["binary_label"] == "malicious"
@@ -55,7 +55,7 @@ def test_classify_message_payload_is_deterministic(fake_ollama):
 
 def test_thinking_models_get_think_false(fake_ollama):
     fake_ollama.capabilities = ["completion", "thinking"]
-    classify_message("qwen2.5:1.5b", "hi", channel="email", prompt_variant="zeroshot")
+    classify_message("acme-small:1b", "hi", channel="email", prompt_variant="zeroshot")
     assert fake_ollama.generate_calls()[-1]["think"] is False
 
 
@@ -70,10 +70,10 @@ def test_http_error_becomes_unknown(fake_ollama, monkeypatch):
         return original(method, url, body)
 
     monkeypatch.setattr(fake_ollama, "_route", route)
-    predicted, raw, _, meta = classify_message("qwen2.5:1.5b", "x", num_gpu=0, channel="email")
+    predicted, raw, _, meta = classify_message("acme-small:1b", "x", num_gpu=0, channel="email")
     assert predicted == "unknown"
     assert raw.startswith("[ERROR")
-    assert meta == {}
+    assert meta == {"request_status": "error"}
 
 
 def test_run_evaluation_end_to_end(fake_ollama, toy_df):
@@ -85,7 +85,7 @@ def test_run_evaluation_end_to_end(fake_ollama, toy_df):
     fake_ollama.responder = responder
     seen = []
     run = run_evaluation(
-        "qwen2.5:1.5b",
+        "acme-small:1b",
         toy_df.head(12),
         num_gpu=0,
         prompt_variant="fewshot",
@@ -94,7 +94,7 @@ def test_run_evaluation_end_to_end(fake_ollama, toy_df):
     assert run.completed == 12 and run.failed == 0
     assert seen == list(range(1, 13))
     assert all(r.is_binary_correct for r in run.results)
-    assert run.model_size_bytes == 986_000_000  # exact match, not qwen2.5:7b
+    assert run.model_size_bytes == 986_000_000  # exact match, not acme-small:7b
     # warm-up request + 12 evaluation requests
     assert len(fake_ollama.generate_calls()) == 13
     assert run.cold_start_s == pytest.approx(2.0)  # the warm-up request loaded the model

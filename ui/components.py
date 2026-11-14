@@ -78,6 +78,19 @@ def fmt_ratio(value, decimals: int = 4) -> str:
     return DASH if number is None else f"{number:.{decimals}f}"
 
 
+def fmt_ci(value, ci: dict | None = None, decimals: int = 3) -> str:
+    """0.893 with ci {low, high} -> '0.893 [0.825; 0.946]'; missing -> '—'."""
+    number = _number(value)
+    if number is None:
+        return DASH
+    text = f"{number:.{decimals}f}"
+    low = _number((ci or {}).get("low"))
+    high = _number((ci or {}).get("high"))
+    if low is not None and high is not None:
+        text += f" [{low:.{decimals}f}; {high:.{decimals}f}]"
+    return text
+
+
 # ──────────────────────────────────────────────
 # Page furniture
 # ──────────────────────────────────────────────

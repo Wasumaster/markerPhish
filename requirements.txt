@@ -11,6 +11,8 @@ numpy==2.5.4
 
 # ML metrics
 scikit-learn==1.9.1
+# Exact binomial / chi-square for McNemar's test
+scipy==1.18.1
 
 # Visualization
 plotly==7.1.0

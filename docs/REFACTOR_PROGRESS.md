@@ -11,9 +11,9 @@ If a session restarts, resume from the first unchecked phase below.
 | 1. Bugs, hygiene, tests | done 2026-11-14 |
 | 2. Data preprocessing | done 2026-11-14 (incl. addendum 2a, committed) |
 | 3. Reproducibility manifest | done 2026-11-14 (committed) |
-| 4. Resource profiling | done 2026-11-14, awaiting "continue" |
-| 5. Metrics | not started |
-| 5b. Inference options | not started |
+| 4. Resource profiling | done 2026-11-14 (committed da6ec73) |
+| 5. Metrics | done 2026-11-14 (autonomous, committed) |
+| 5b. Inference options | in progress (autonomous) |
 | 6. Batch mode, then STOP: pilot can start | not started |
 | 7. Optimum analysis | not started |
 | 8. Non-LLM baseline | not started |
@@ -22,6 +22,34 @@ If a session restarts, resume from the first unchecked phase below.
 | Final report | not started |
 
 Rules per phase: run tests, AppTest every tab, update this file, report, wait for "continue". Never commit.
+
+## AUTONOMOUS SESSION RULES (from 2026-11-14 evening; override "stop after each phase")
+The user is away. Work through Phases 5, 5b, 6, 7, 8, 9, 10 in order without waiting.
+1. Decide alone, following REFACTOR_TASK.md and earlier answers; prefer thesis validity + reproducibility, then simplicity. Skip ALL (optional) items (incl. Reproduce button).
+   Mark runs made before the 127.0.0.1 fix as latency-inflated (~+2 s/request): flag in loaded report, note in Results and Compare, paragraph in OVERVIEW.md.
+2. Real Ollama: any single check <= 5 inference requests in total; NO pilot / main / 50-record batch (replace each with a <=5-request check); Phase 5b output cap: <= 5 requests (longest message, once per installed model), generous margin, documented as provisional; always leave no model loaded.
+3. Commits allowed locally: one phase per commit after tests + AppTest pass, message "Phase N: <summary>". Never push / rewrite history / delete branches / touch earlier results/ files.
+4. Log every decision in "Autonomous decisions" below (what, why, alternative, how to revert).
+5. If a phase fails and cannot be fixed safely: commit nothing for it, write the problem here, stop.
+6. Phase 8 baseline may train/predict on real data; keep it fast.
+7. Final report here and in chat. The user will only use the app: pick a model in Run, choose 50/100/250/500/1000, start: this must work end to end in the UI. Do NOT prepare extra experiments, pilot files or commands. Calibration optional, never blocks a run.
+8. On a usage limit: this file must say exactly where work stopped and what is next.
+9. Flexibility (hard requirement): no hardcoded model names/lists in code, config, UI or tests; models from /api/tags, metadata from /api/show, missing metadata = null, never a crash. num_ctx never exceeds the model's context_length; per-request prompt_eval_count check flags possibly cut inputs; optional `python -m backend.calibrate <model>` stores a per-model chars-per-token override (no calibration -> note, never block). num_predict: one default + optional per-model override, recorded in the manifest. Everything scales to any number of models/runs (no fixed colours/rows per model). Tests use fake model names, missing metadata, a denser tokenizer. OVERVIEW.md: section "Adding a new model".
+
+## Autonomous decisions
+(what · why · alternative · how to revert)
+
+D1. Test model names. What: all tests use fake models (acme-small:1b, acme-small:7b, zeta-chat:latest, omega-big:8b, bare-model:latest without any metadata); comments in code/config no longer name real models. Why: session rule 9. Alternative: keep real names in tests only. Revert: none needed (tests only).
+D2. Prompt cache and token counts. What: measured (3 requests, smallest installed model): Ollama's prompt_eval_count reports the full prompt length even when the prefix is served from its prompt cache (1,100 tokens both times), but prompt_eval_duration drops (9.74 s -> 0.06 s for a repeated prompt; a different message with the same template prefix also reuses it). Consequence: the per-request overflow guard (5b) can use prompt_eval_count; prefill tokens/s is inflated by cache reuse and is documented that way (timing.note). Alternative: disable caching (not exposed for /api/generate) or estimate from client latency. Revert: n/a (a measurement).
+D3. Primary metric set. What: report["detection"] has both unknown modes overall and per channel with CIs for precision, recall, F1, FPR; primary = unknown_as_error. Classic classification_metrics (excluding unknown) kept unchanged. Why: task Phase 5. Alternative: replace the old block. Revert: n/a.
+D4. F1 formula. What: F1 = 2TP / (2TP + FP + FN), undefined (null) only when there is no positive and nothing flagged. Same value as 2PR/(P+R) wherever that is defined; gives 0 instead of undefined when TP = 0 but errors exist (as the old code did). Revert: backend/stats.rates.
+D5. Bootstrap. What: 1000 resamples, seed 20261114 (stats.BOOTSTRAP_SEED, separate from the sample seed), stratified by class x channel, whole groups when group ids exist, percentile CI; a CI is reported only if the metric is defined in at least half the resamples. Alternative: BCa intervals (more complex, no gain at n >= 250). Revert: stats.py constants.
+D6. Recompute on load. What: report["metrics_version"] (detection.METRICS_VERSION = 1); utils.ensure_report_compatibility recomputes detection + timing from raw_predictions when missing or older; the file is never rewritten. Why: pilot runs stay valid if a metric is fixed later. Revert: remove _refresh_derived_metrics.
+D7. Failed requests. What: request_status per record (ok / timeout / error); failed requests are excluded from latency statistics and throughput, counted separately; their prediction is "unknown" and therefore counts as an error in the primary metrics. EvaluationRun.failed now counts failed requests (it used to count unknown answers). Revert: evaluator.run_evaluation.
+D8. Throughput. What: throughput_msgs_per_min = successful timed requests / sum of their latencies x 60 (client latency includes HTTP); wall_throughput_msgs_per_min kept separately. resource_metrics also excludes failed and cold requests now. Revert: metrics.compute_resource_metrics.
+D9. Latency-inflated runs (session rule 1). What: manifest.software.ollama_url is recorded from now on; report_latency_inflated() = no ollama_url recorded or "localhost" in it, so all legacy runs and any run made before the fix are flagged; the loaded report gets latency_inflated; Results shows a warning in Cost, Compare marks latency cells with * and a footnote. Alternative: a list of filenames (brittle). Revert: manifest.report_latency_inflated.
+D10. McNemar pairing. What: compare_runs pairs records by source_id; correctness uses unknown = error; "not comparable" when a fingerprint is missing (legacy), differs, or the record sets differ. Exact binomial below 25 discordant pairs, chi-square with continuity correction otherwise. Holm helper for Phase 7. Revert: detection.compare_runs.
+D11. Optional items skipped: base-rate precision, cost-weighted error, logprob scores / ROC / PR (session rule 1).
 
 ## Checklist
 
@@ -85,13 +113,13 @@ Rules per phase: run tests, AppTest every tab, update this file, report, wait fo
 - [x] Ollama URL 127.0.0.1 (found: localhost adds ~2 s per request on Windows)
 
 ### Phase 5: metrics
-- [ ] "excluding unknown" and "unknown = error" sets
-- [ ] binary metrics per channel
-- [ ] bootstrap CI (stratified, group-aware)
-- [ ] McNemar (exact for small discordant counts)
-- [ ] per-record timing fields, tokens/s, throughput from inference time, failed requests excluded
-- [ ] (optional) base-rate precision, cost-weighted error
-- [ ] (optional) logprob scores, ROC/PR
+- [x] "excluding unknown" and "unknown = error" sets
+- [x] binary metrics per channel
+- [x] bootstrap CI (stratified, group-aware)
+- [x] McNemar (exact for small discordant counts)
+- [x] per-record timing fields, tokens/s, throughput from inference time, failed requests excluded
+- [x] (optional) base-rate precision, cost-weighted error: SKIPPED (session rule 1)
+- [x] (optional) logprob scores, ROC/PR: SKIPPED (session rule 1)
 
 ### Phase 5b: inference options
 - [ ] num_ctx, num_thread, num_predict, num_batch configurable, validated
@@ -252,3 +280,15 @@ Deviations:
 Open issues:
 - Sampler overhead: 38 ms per 0.5 s on one core = ~0.5% of the machine (16 threads); reported per run as sampler_cost_ms.
 - Phase 9 will extend the Results/Compare resource display (time-series chart etc.).
+
+### Phase 5 (2026-11-14, autonomous)
+Done:
+- `backend/stats.py`: counts in both unknown modes, rates (precision, recall, F1, FPR, FNR, specificity, accuracy), stratified group-aware bootstrap weights, percentile CIs, McNemar (exact / chi2 with continuity correction), Holm.
+- `backend/detection.py`: `compute_detection` (overall + per channel, both modes, CIs), `compute_timing` (latency over successful non-cold requests, failures, tokens and tokens/s, throughput from inference time, wall throughput), `request_status`, `compare_runs` (McNemar, same fingerprint only), METRICS_VERSION.
+- evaluator: per record request_status, prompt_eval_duration_s, eval_duration_s, total_duration_s (plus prompt_eval_count, eval_count, load_duration_s); metrics: report gets metrics_version, detection, timing; raw_predictions carry the timing fields.
+- utils: recompute derived blocks on load; latency_inflated flag. manifest: software.ollama_url, LATENCY_INFLATION_NOTE, report_latency_inflated.
+- UI: Results "Detection" (both modes, CIs, per channel) and "Cost" (timing block, latency-inflation warning); Compare: primary "F1 (unknown = error)" with CI, recall / precision / FPR in that mode, unknown %, * on latency columns of inflated runs. ui.components.fmt_ci.
+- requirements: scipy==1.18.1. Tests: tests/test_stats.py (19), compat + AppTests. 210 tests pass. Live AppTest: 4 tabs, no errors, no model loaded.
+Deviations: optional items skipped (D11). EvaluationRun.failed now means failed requests (D7).
+Open: Phase 9 completes the Compare table (CI columns for other metrics, legacy/dev toggle, fingerprint warning).
+

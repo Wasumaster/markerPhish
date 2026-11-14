@@ -69,6 +69,10 @@ class InferenceResult:
     group_id: str = ""
     is_cold_request: bool = False  # cold start: the first request, which paid the model load
     load_duration_s: float = 0.0
+    request_status: str = "ok"  # ok | timeout | error
+    prompt_eval_duration_s: float | None = None  # Ollama's own timings (seconds)
+    eval_duration_s: float | None = None
+    total_duration_s: float | None = None
 
 
 @dataclass
@@ -160,9 +164,9 @@ def find_model_size(models: list[dict], model_name: str) -> int:
     """
     Size in bytes of an installed model, matched by exact name.
 
-    Ollama lists untagged models as "<name>:latest", so "llama3.2" also matches
-    "llama3.2:latest". A prefix match is never used: "qwen2.5" must not pick up
-    "qwen2.5:7b" when "qwen2.5:1.5b" is meant. Returns 0 when there is no match.
+    Ollama lists untagged models as "<name>:latest", so "mymodel" also matches
+    "mymodel:latest". A prefix match is never used: "mymodel" must not pick up
+    "mymodel:7b" when "mymodel:1.5b" is meant. Returns 0 when there is no match.
     """
     wanted = {model_name}
     if ":" not in model_name:
@@ -474,11 +478,11 @@ def classify_message(
     except requests.Timeout:
         elapsed = time.perf_counter() - start
         logger.warning("Timeout after %.1fs for model %s", elapsed, model_name)
-        return "unknown", "[TIMEOUT]", elapsed, {}
+        return "unknown", "[TIMEOUT]", elapsed, {"request_status": "timeout"}
     except requests.ConnectionError:
         elapsed = time.perf_counter() - start
         logger.error("Cannot connect to Ollama — is it running?")
-        return "unknown", "[CONNECTION_ERROR: Ollama offline]", elapsed, {}
+        return "unknown", "[CONNECTION_ERROR: Ollama offline]", elapsed, {"request_status": "error"}
     except Exception as e:
         elapsed = time.perf_counter() - start
         error_msg = str(e)
@@ -489,7 +493,7 @@ def classify_message(
             except Exception:
                 error_msg = f"{e.response.status_code} — {e.response.text[:200]}"
         logger.error("Inference error: %s", error_msg)
-        return "unknown", f"[ERROR: {error_msg}]", elapsed, {}
+        return "unknown", f"[ERROR: {error_msg}]", elapsed, {"request_status": "error"}
 
     latency = time.perf_counter() - start
     raw_response = data.get("response", "").strip()
@@ -503,6 +507,7 @@ def classify_message(
         "load_duration_ns": data.get("load_duration", 0),
         "prompt_eval_duration_ns": data.get("prompt_eval_duration", 0),
         "eval_duration_ns": data.get("eval_duration", 0),
+        "request_status": "ok",
         "binary_label": binary,
         "channel": channel or "unknown",
         "prompt_variant": variant,
@@ -512,6 +517,10 @@ def classify_message(
     }
 
     return predicted, raw_response, latency, metadata
+
+
+def _ns_to_s(value) -> float | None:
+    return round(value / 1e9, 6) if isinstance(value, (int, float)) and value > 0 else None
 
 
 def loaded_models() -> list[str] | None:
@@ -689,6 +698,10 @@ def run_evaluation(
                 group_id=str(row["group_id"]) if "group_id" in df.columns else "",
                 is_cold_request=is_cold,
                 load_duration_s=round(load_s, 4),
+                request_status=meta.get("request_status", "ok"),
+                prompt_eval_duration_s=_ns_to_s(meta.get("prompt_eval_duration_ns")),
+                eval_duration_s=_ns_to_s(meta.get("eval_duration_ns")),
+                total_duration_s=_ns_to_s(meta.get("total_duration_ns")),
             )
 
             sent = meta.get("options_sent")
@@ -700,7 +713,7 @@ def run_evaluation(
 
             run.results.append(result)
             run.completed += 1
-            if predicted == "unknown":
+            if result.request_status != "ok":
                 run.failed += 1
 
             if progress_callback:

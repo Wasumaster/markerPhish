@@ -27,8 +27,11 @@ from ui.components import (
     esc,
     fmt_int,
     fmt_mb,
+    fmt_ci,
     fmt_pct,
     fmt_rate,
+    fmt_ratio,
+    note,
     fmt_seconds,
     marker_legend,
     page_title,
@@ -67,8 +70,17 @@ def _extract_report_summary(filename: str, report: dict) -> dict:
     smishing_stats = ch_metrics.get("smishing", {})
     valid_stats = ch_metrics.get("valid", {})
 
+    det = report.get("detection") or {}
+    ue = (det.get("overall") or {}).get("unknown_as_error") or {}
     return {
         "filename": filename,
+        "latency_inflated": bool(report.get("latency_inflated")),
+        "f1_ue": ue.get("f1"),
+        "f1_ue_text": fmt_ci(ue.get("f1"), (ue.get("ci") or {}).get("f1")),
+        "recall_ue": ue.get("recall"),
+        "precision_ue": ue.get("precision"),
+        "fpr_ue": ue.get("fpr"),
+        "unknown_rate": det.get("unknown_rate"),
         "model_name": model_name,
         "prompt_variant": prompt_variant,
         "model_variant": f"{model_name} [{prompt_variant}]",
@@ -106,13 +118,19 @@ def _extract_report_summary(filename: str, report: dict) -> dict:
     }
 
 
+_LATENCY_KEYS = {"p95_latency_s", "avg_latency_s", "throughput_msgs_per_min"}
+
+
 def _summary_table(comp_df: pd.DataFrame) -> None:
     """One row per run; the best value in each metric column is set in bold."""
     # (header, column key, formatter, preference for bold or None)
     spec = [
-        ("F1", "f1", fmt_pct, "max"),
-        ("recall", "recall", fmt_pct, "max"),
-        ("precision", "precision", fmt_pct, "max"),
+        ("F1 (unknown = error)", "f1_ue", None, "max"),
+        ("recall", "recall_ue", fmt_ratio, "max"),
+        ("precision", "precision_ue", fmt_ratio, "max"),
+        ("FPR", "fpr_ue", fmt_ratio, "min"),
+        ("unknown", "unknown_rate", fmt_pct, "min"),
+        ("F1 (excl. unknown)", "f1", fmt_pct, "max"),
         ("accuracy", "accuracy", fmt_pct, "max"),
         ("specificity", "specificity", fmt_pct, "max"),
         ("false alarm", "false_alarm_rate", fmt_pct, "min"),
@@ -122,7 +140,6 @@ def _summary_table(comp_df: pd.DataFrame) -> None:
         ("cold start", "cold_start_s", fmt_seconds, "min"),
         ("peak RAM", "peak_ram_mb", fmt_mb, "min"),
         ("size", "model_size_mb", fmt_mb, "min"),
-        ("unknown", "unknown_predictions", fmt_int, "min"),
         ("messages", "total_evaluated", fmt_int, None),
     ]
     best = {key: best_flags(comp_df[key].tolist(), pref) for _, key, _, pref in spec if pref}
@@ -139,7 +156,10 @@ def _summary_table(comp_df: pd.DataFrame) -> None:
         ]
         for _, key, fmt, pref in spec:
             value = getattr(row, key)
-            cells.append(cell(fmt(value), bold=bool(pref and best[key][i])))
+            text = row.f1_ue_text if key == "f1_ue" else fmt(value)
+            if row.latency_inflated and key in _LATENCY_KEYS and text != DASH:
+                text += " *"
+            cells.append(cell(text, bold=bool(pref and best[key][i])))
         cells.append(row.execution_mode)
         rows.append(cells)
 
@@ -147,6 +167,12 @@ def _summary_table(comp_df: pd.DataFrame) -> None:
     for r in rows:
         r[0]["html"] = f'<span class="nowrap">{r[0]["html"]}</span>'
     data_table(headers, rows, numeric=numeric)
+    note(
+        "F1, recall, precision and FPR count an unknown answer as an error (missed threat or false alarm); "
+        "F1 in brackets: 95% bootstrap CI."
+        + (" * Latency inflated by about 2 s per request (run made before the Ollama URL fix)."
+           if comp_df["latency_inflated"].any() else "")
+    )
 
 
 def render_multi_comparison_view() -> None:

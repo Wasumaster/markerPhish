@@ -236,8 +236,8 @@ CONTEXT_MARGIN_FRACTION = 0.10
 # measurement on all five installed tokenizers (2026-11-14, fewshotcot prompt,
 # Ollama prompt_eval_count). Prose-heavy email: 3.7-4.4 chars/token. The most
 # link-dense email (seed:2327, 35 URLs): 2.5-3.5 at full length, and denser
-# still once its body is cut (the URL share grows): 2.47 on phi3.5 with a
-# 4,289-char message. 3.0 overflowed num_ctx on phi3.5 (4,046 + 256 tokens);
+# still once its body is cut (the URL share grows): 2.47 on the densest
+# tokenizer with a 4,289-char message. 3.0 overflowed num_ctx there (4,046 + 256);
 # 2.5 fitted but missed the 10% margin by 36 tokens; 2.4 meets it (verified).
 # Checked per request against prompt_eval_count (Phase 5b).
 CHARS_PER_TOKEN_ESTIMATE = 2.4
@@ -502,7 +502,7 @@ TRUNCATION_MARKER = " [...]"
 # are counted as lost (body_urls_lost) in the dataset report.
 LINKS_MIN_BODY_CHARS = 1000
 # Moved links take at most this many characters per email. Measured 2026-11-14:
-# newsletter tracking URLs tokenize at ~1.2 chars/token on phi3.5, so without a
+# newsletter tracking URLs tokenize at ~1.2 chars/token on the densest tokenizer, so without a
 # cap a 2.8k-char moved-link header pushed seed:2969 to 4,047 tokens (prompt +
 # output), past the 10% margin. Phishing emails carry few links; the cap only
 # bites on link-heavy newsletters, and what does not fit is counted as lost.

@@ -30,6 +30,8 @@ from config import (
     to_binary_label,
 )
 
+from .detection import METRICS_VERSION, compute_detection, compute_timing
+
 if TYPE_CHECKING:
     from .evaluator import EvaluationRun
 
@@ -268,7 +270,11 @@ def compute_resource_metrics(run: "EvaluationRun") -> dict:
     excluded here and reported as cold_start_s (its prediction still counts in
     the detection metrics).
     """
-    latencies = [r.latency_seconds for r in run.results if not getattr(r, "is_cold_request", False)]
+    latencies = [
+        r.latency_seconds
+        for r in run.results
+        if not getattr(r, "is_cold_request", False) and getattr(r, "request_status", "ok") == "ok"
+    ]
 
     if latencies:
         lat_array = np.array(latencies)
@@ -280,7 +286,10 @@ def compute_resource_metrics(run: "EvaluationRun") -> dict:
     else:
         avg_lat = med_lat = min_lat = max_lat = p95_lat = 0.0
 
-    throughput = (run.completed / run.elapsed_time * 60) if run.elapsed_time > 0 else 0.0
+    # Throughput from the inference time only (sum of request latencies), not from
+    # wall time, which also includes UI rendering between requests.
+    throughput = (len(latencies) / sum(latencies) * 60) if latencies and sum(latencies) > 0 else 0.0
+    wall_throughput = (run.completed / run.elapsed_time * 60) if run.elapsed_time > 0 else 0.0
 
     return {
         "model_name": run.model_name,
@@ -295,6 +304,7 @@ def compute_resource_metrics(run: "EvaluationRun") -> dict:
         "max_latency_s": round(max_lat, 4),
         "p95_latency_s": round(p95_lat, 4),
         "throughput_msgs_per_min": round(throughput, 2),
+        "wall_throughput_msgs_per_min": round(wall_throughput, 2),
         # Model load time: warm-up request (warm) or the first request's load_duration (cold)
         "cold_start_s": round(float(getattr(run, "cold_start_s", 0.0) or 0.0), 3),
         "start_mode": getattr(run, "start_mode", "warm"),
@@ -341,7 +351,7 @@ def build_full_report(
 
     prompt_variant = getattr(run, "prompt_variant", "") or ""
 
-    return {
+    report = {
         "model_name": run.model_name,
         "execution_mode": execution_mode,
         "prompt_variant": prompt_variant,
@@ -371,7 +381,17 @@ def build_full_report(
                 "latency_s": round(r.latency_seconds, 4),
                 "is_cold_request": getattr(r, "is_cold_request", False),
                 "load_duration_s": getattr(r, "load_duration_s", 0.0),
+                "request_status": getattr(r, "request_status", "ok"),
+                "prompt_eval_count": getattr(r, "prompt_eval_count", None),
+                "eval_count": getattr(r, "eval_count", None),
+                "prompt_eval_duration_s": getattr(r, "prompt_eval_duration_s", None),
+                "eval_duration_s": getattr(r, "eval_duration_s", None),
+                "total_duration_s": getattr(r, "total_duration_s", None),
             }
             for r in run.results
         ],
     }
+    report["metrics_version"] = METRICS_VERSION
+    report["detection"] = compute_detection(report["raw_predictions"])
+    report["timing"] = compute_timing(report["raw_predictions"], wall_time_s=run.elapsed_time)
+    return report

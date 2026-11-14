@@ -22,7 +22,13 @@ from backend.utils import (
     report_cold_start,
     report_prompt_variant,
 )
-from backend.manifest import current_environment, manifest_differences, manifest_summary, report_power_warning
+from backend.manifest import (
+    LATENCY_INFLATION_NOTE,
+    current_environment,
+    manifest_differences,
+    manifest_summary,
+    report_power_warning,
+)
 from config import LEGACY_PROMPT_VARIANT, is_binary_match
 from ui.components import (
     DASH,
@@ -33,6 +39,7 @@ from ui.components import (
     fmt_mb,
     fmt_pct,
     fmt_rate,
+    fmt_ci,
     fmt_ratio,
     fmt_seconds,
     html_block,
@@ -74,24 +81,7 @@ def render_results(report: dict) -> None:
     # ──────────────────────────────────────────────
     # Level 1: Binary threat detection metrics
     # ──────────────────────────────────────────────
-    section_title("Detection", "Binary threat detection: malicious (phishing or smishing) vs. safe.")
-    with st.container():
-        section_label("metrics")
-        data_table(
-            ["metric", "value", "definition"],
-            [
-                ["binary accuracy", fmt_pct(cls.get("accuracy")), "Share of correct decisions (threats and safe messages)"],
-                ["threat precision", fmt_pct(cls.get("precision")), "Of messages flagged as threats, share that were malicious: TP / (TP + FP)"],
-                ["threat recall", fmt_pct(cls.get("recall")), "Of all actual threats, share intercepted: TP / (TP + FN)"],
-                ["threat F1", fmt_pct(cls.get("f1")), "Harmonic mean of threat precision and recall"],
-                ["safe specificity", fmt_pct(cls.get("specificity")), "Safe messages correctly passed: TN / (TN + FP)"],
-                ["threat miss rate (FNR)", fmt_pct(cls.get("miss_rate")), "Threats let through as safe: FN / (TP + FN)"],
-                ["false alarm rate (FPR)", fmt_pct(cls.get("false_alarm_rate")), "Safe messages flagged as threats: FP / (TN + FP)"],
-                ["failed / unknown inferences", fmt_int(cls.get("unknown_predictions")), "Requests that timed out or gave unparsable output"],
-            ],
-            numeric={1},
-            sans={2},
-        )
+    _render_detection(report.get("detection") or {})
 
     # ──────────────────────────────────────────────
     # Level 2: Confusion matrix & distributions
@@ -205,25 +195,7 @@ def render_results(report: dict) -> None:
     # ──────────────────────────────────────────────
     # Level 4: Computational overhead
     # ──────────────────────────────────────────────
-    section_title("Cost", "Latency per message and throughput; model loading is reported separately as cold start.")
-    with st.container():
-        section_label("computational overhead")
-        data_table(
-            ["metric", "value"],
-            [
-                ["mean latency", fmt_seconds(res.get("avg_latency_s"), 3)],
-                ["median latency", fmt_seconds(res.get("median_latency_s"), 3)],
-                ["p95 latency", fmt_seconds(res.get("p95_latency_s"), 3)],
-                ["minimum latency", fmt_seconds(res.get("min_latency_s"), 3)],
-                ["maximum latency", fmt_seconds(res.get("max_latency_s"), 3)],
-                ["throughput", fmt_rate(res.get("throughput_msgs_per_min"))],
-                ["total execution time", fmt_seconds(res.get("total_time_s"), 1)],
-                ["cold start (model load)", fmt_seconds(report_cold_start(report))],
-                ["model storage size", fmt_mb(res.get("model_size_mb"))],
-            ],
-            numeric={1},
-            max_width="640px",
-        )
+    _render_timing(report)
 
     # Latency histogram
     raw_preds = report.get("raw_predictions", [])
@@ -301,6 +273,120 @@ def render_results(report: dict) -> None:
 
     with st.expander("full scikit-learn report output", expanded=False):
         st.code(cls.get("classification_report_text", "N/A"), language="text")
+
+
+_METRIC_ROWS = [
+    ("precision", "precision", "TP / (TP + FP)", True),
+    ("recall", "recall", "TP / (TP + FN): share of threats caught", True),
+    ("F1", "f1", "2 TP / (2 TP + FP + FN)", True),
+    ("false positive rate", "fpr", "FP / (FP + TN): safe messages flagged", True),
+    ("false negative rate", "fnr", "FN / (TP + FN): threats let through", False),
+    ("specificity", "specificity", "TN / (TN + FP)", False),
+    ("accuracy", "accuracy", "(TP + TN) / all evaluated", False),
+]
+
+
+def _render_detection(det: dict) -> None:
+    """Binary detection in both unknown modes, overall and per channel, with bootstrap CIs."""
+    boot = det.get("bootstrap") or {}
+    level = int(round((boot.get("level") or 0.95) * 100))
+    section_title(
+        "Detection",
+        "Malicious (phishing or smishing) vs. safe. Primary: unknown = error (a missed threat for a malicious "
+        f"message, a false alarm for a safe one). Brackets: {level}% bootstrap CI "
+        f"({boot.get('resamples', DASH)} resamples, stratified by class and channel"
+        + (", group-aware" if boot.get("group_aware") else "") + ").",
+    )
+    overall = det.get("overall") or {}
+    primary = overall.get("unknown_as_error") or {}
+    excl = overall.get("excluding_unknown") or {}
+    if not primary:
+        note("No predictions to evaluate.")
+        return
+    rows = []
+    for label, key, definition, has_ci in _METRIC_ROWS:
+        rows.append([
+            label,
+            fmt_ci(primary.get(key), (primary.get("ci") or {}).get(key) if has_ci else None),
+            fmt_ci(excl.get(key), (excl.get("ci") or {}).get(key) if has_ci else None),
+            definition,
+        ])
+    unknown = fmt_int(det.get("unknown_predictions"))
+    rows.append(["unknown predictions", f"{unknown} ({fmt_pct(det.get('unknown_rate'))})", f"{unknown} excluded",
+                 "no parsable answer (or failed request)"])
+    rows.append(["TP / FN / FP / TN",
+                 f"{primary.get('tp')} / {primary.get('fn')} / {primary.get('fp')} / {primary.get('tn')}",
+                 f"{excl.get('tp')} / {excl.get('fn')} / {excl.get('fp')} / {excl.get('tn')}", ""])
+    with st.container():
+        section_label("metrics")
+        data_table(["metric", "unknown = error", "excluding unknown", "definition"], rows, numeric={1, 2}, sans={3})
+        if det.get("excluded_unknown_ground_truth"):
+            note(f"{det['excluded_unknown_ground_truth']} records without a ground-truth label are excluded.")
+
+    per_channel = det.get("per_channel") or {}
+    if not per_channel:
+        return
+
+    def channel_rows(mode: str) -> list:
+        out = []
+        for channel, modes in per_channel.items():
+            m = modes.get(mode) or {}
+            ci = m.get("ci") or {}
+            out.append([
+                channel,
+                f"{fmt_int(m.get('support_malicious'))} / {fmt_int(m.get('support_safe'))}",
+                fmt_ci(m.get("precision"), ci.get("precision")),
+                fmt_ci(m.get("recall"), ci.get("recall")),
+                fmt_ci(m.get("f1"), ci.get("f1")),
+                fmt_ci(m.get("fpr"), ci.get("fpr")),
+                fmt_ci(m.get("fnr")),
+                fmt_int(m.get("unknown_predictions")),
+            ])
+        return out
+
+    headers = ["channel", "malicious / safe", "precision", "recall", "F1", "FPR", "FNR", "unknown"]
+    with st.container():
+        section_label("per channel · unknown = error")
+        data_table(headers, channel_rows("unknown_as_error"), numeric=set(range(1, 8)))
+    with st.expander("per channel · excluding unknown", expanded=False):
+        data_table(headers, channel_rows("excluding_unknown"), numeric=set(range(1, 8)))
+
+
+def _render_timing(report: dict) -> None:
+    """Latency over successful requests, failures, tokens/s and throughput."""
+    t = report.get("timing") or {}
+    lat = t.get("latency_s") or {}
+    section_title(
+        "Cost",
+        "Latency per message over successful requests only (failed requests and the cold-start request are "
+        "excluded). Throughput = messages / sum of request latencies; wall-clock throughput includes the UI.",
+    )
+    if report.get("latency_inflated"):
+        st.warning(LATENCY_INFLATION_NOTE)
+    failed = (
+        f"{fmt_int(t.get('failed_requests'))} ({fmt_pct(t.get('failure_rate'))}) · "
+        f"timeouts {fmt_int(t.get('timeouts'))} · errors {fmt_int(t.get('errors'))}"
+    )
+    rows = [
+        ["mean latency", fmt_seconds(lat.get("mean"), 3)],
+        ["median latency", fmt_seconds(lat.get("median"), 3)],
+        ["p95 latency", fmt_seconds(lat.get("p95"), 3)],
+        ["min / max latency", f"{fmt_seconds(lat.get('min'), 3)} / {fmt_seconds(lat.get('max'), 3)}"],
+        ["throughput (inference time)", fmt_rate(t.get("throughput_msgs_per_min"))],
+        ["throughput (wall clock)", fmt_rate(t.get("wall_throughput_msgs_per_min"))],
+        ["failed requests", failed],
+        ["prompt tokens (mean)", fmt_ratio(t.get("prompt_tokens_mean"), 1)],
+        ["output tokens (mean)", fmt_ratio(t.get("output_tokens_mean"), 1)],
+        ["prefill tokens/s", fmt_ratio(t.get("prefill_tokens_per_s"), 1)],
+        ["generation tokens/s", fmt_ratio(t.get("generation_tokens_per_s"), 1)],
+        ["total wall time", fmt_seconds(t.get("wall_time_s"), 1)],
+        ["cold start (model load)", fmt_seconds(report_cold_start(report))],
+    ]
+    with st.container():
+        section_label("computational overhead")
+        data_table(["metric", "value"], rows, numeric={1}, max_width="640px")
+        if t.get("note"):
+            note(t["note"])
 
 
 def _render_resources(res: dict | None) -> None:

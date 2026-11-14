@@ -74,18 +74,18 @@ def test_git_failure_never_raises(monkeypatch):
 
 def test_ollama_version_and_model_details(fake_ollama):
     assert mf.ollama_version() == "0.40.13"
-    d = mf.model_details("qwen2.5:1.5b")
-    assert d["tag"] == "1.5b"
+    d = mf.model_details("acme-small:1b")
+    assert d["tag"] == "1b"
     assert d["digest"] and len(d["digest"]) == 64
     assert d["quantization"] == "Q4_K_M" and d["parameter_size"] == "1.5B"
     assert d["context_length"] == 32768 and d["parameter_count"] == 1_543_714_304
-    assert mf.model_details("llama3.2")["digest"] is not None  # untagged = :latest
+    assert mf.model_details("zeta-chat")["digest"] is not None  # untagged = :latest
 
 
 def test_offline_ollama_gives_nulls(fake_ollama):
     fake_ollama.online = False
     assert mf.ollama_version() is None
-    d = mf.model_details("qwen2.5:1.5b")
+    d = mf.model_details("acme-small:1b")
     assert d["digest"] is None and d["quantization"] is None
 
 
@@ -118,7 +118,7 @@ def test_power_state_reads_battery(monkeypatch):
 
 # ── full report ──
 def test_run_report_contains_a_complete_manifest(fake_ollama, sample):
-    run = run_evaluation("qwen2.5:1.5b", sample.df, num_gpu=0, prompt_variant="fewshot")
+    run = run_evaluation("acme-small:1b", sample.df, num_gpu=0, prompt_variant="fewshot")
     report = build_run_report(
         run,
         df_sample=sample.df,
@@ -182,3 +182,11 @@ def test_manifest_summary_handles_partial_manifests():
     rows = dict(mf.manifest_summary({"protocol_version": 2, "dev": True}))
     assert rows["protocol"] == "2 (dev)"
     assert rows["model digest"] == "not recorded"
+
+
+def test_model_without_metadata_gives_nulls_not_errors(fake_ollama):
+    d = mf.model_details("bare-model:latest")
+    assert d["name"] == "bare-model:latest" and d["tag"] == "latest"
+    for key in ("family", "parameter_size", "parameter_count", "quantization", "context_length", "digest"):
+        assert d[key] is None, key
+    assert mf.model_details("not-installed:x")["size_bytes"] is None

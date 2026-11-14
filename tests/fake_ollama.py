@@ -62,9 +62,12 @@ class FakeOllama:
 
     models: list[dict] = field(
         default_factory=lambda: [
-            default_model("qwen2.5:1.5b", 986_000_000),
-            default_model("qwen2.5:7b", 4_700_000_000, params="7.6B"),
-            default_model("llama3.2:latest", 2_019_000_000, params="3.2B"),
+            default_model("acme-small:1b", 986_000_000),
+            default_model("acme-small:7b", 4_700_000_000, params="7.6B"),
+            default_model("zeta-chat:latest", 2_019_000_000, params="3.2B"),
+            # A model whose /api/tags entry has no details and whose /api/show is empty:
+            # every metadata field must come out as None without errors.
+            {"name": "bare-model:latest", "size": 0},
         ]
     )
     responder: Callable[[str, str, dict], str] | None = None
@@ -110,6 +113,8 @@ class FakeOllama:
         model = next((m for m in self.models if m["name"] == name), None)
         if model is None:
             return {"error": "model not found"}
+        if "details" not in model:
+            return {}
         family = model["details"]["family"]
         return {
             "details": model["details"],

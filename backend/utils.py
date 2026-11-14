@@ -183,8 +183,8 @@ def load_result_by_filename(filename: str) -> dict | None:
 def format_result_label(filename: str) -> str:
     """
     Format a result filename into a concise, professional display string.
-    Example: eval_phi3.5_latest_fewshot_20261022_145434.json
-             -> phi3.5_latest | fewshot | 2026-10-22 14:54:34 (filename)
+    Example: eval_mymodel_latest_fewshot_20261022_145434.json
+             -> mymodel_latest | fewshot | 2026-10-22 14:54:34 (filename)
     Files without a prompt variant (older reports) are shown as "legacy".
     """
     stem = filename[:-5] if filename.endswith(".json") else filename
@@ -279,4 +279,28 @@ def ensure_report_compatibility(report: dict) -> dict:
             }
             report["data_distribution"] = dist
 
+    _refresh_derived_metrics(report)
+    from .manifest import report_latency_inflated
+
+    report["latency_inflated"] = report_latency_inflated(report)
     return report
+
+
+def _refresh_derived_metrics(report: dict) -> None:
+    """
+    (Re)compute the detection and timing blocks from raw_predictions when they
+    are missing or were computed by an older metrics version. Only the loaded
+    copy changes; the file on disk is never rewritten.
+    """
+    from .detection import METRICS_VERSION, compute_detection, compute_timing
+
+    raw = report.get("raw_predictions")
+    if not raw:
+        return
+    if report.get("metrics_version") == METRICS_VERSION and "detection" in report and "timing" in report:
+        return
+    report["detection"] = compute_detection(raw)
+    wall = (report.get("resource_metrics") or {}).get("total_time_s")
+    report["timing"] = compute_timing(raw, wall_time_s=wall)
+    report["metrics_version_stored"] = report.get("metrics_version")
+    report["metrics_version"] = METRICS_VERSION

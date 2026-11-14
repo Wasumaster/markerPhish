@@ -73,12 +73,12 @@ def test_results_tab_shows_the_manifest_of_a_new_run(fake_ollama, legacy_results
 
     df = toy_df.assign(source_id=[f"t:{i}" for i in toy_df["id"]], group_id=[f"g:{i}" for i in toy_df["id"]])
     sample = balanced_sample(df, 20)
-    run = run_evaluation("qwen2.5:1.5b", sample.df, num_gpu=0, prompt_variant="zeroshot")
+    run = run_evaluation("acme-small:1b", sample.df, num_gpu=0, prompt_variant="zeroshot")
     report = build_run_report(
         run, df_sample=sample.df, dataset_choice="seed+sms", sample_info=sample.info,
         code={"commit": "0" * 40, "dirty": False, "changed_files": []},
     )
-    path = save_results(report, "qwen2.5:1.5b", prompt_variant="zeroshot")
+    path = save_results(report, "acme-small:1b", prompt_variant="zeroshot")
     newest = os.path.basename(path)
     os.utime(path, (4_000_000_000, 4_000_000_000))  # newest file -> selected by default
 
@@ -101,11 +101,11 @@ def test_results_tab_marks_legacy_runs(app):
 
 
 def test_run_tab_warns_about_other_loaded_models(fake_ollama, legacy_results_dir):
-    fake_ollama.load("llama3.1:8b")
+    fake_ollama.load("omega-big:8b")
     at = AppTest.from_file(APP, default_timeout=120)
     at.run()
     assert not at.exception
-    assert any("Other models are loaded" in w.value and "llama3.1:8b" in w.value for w in at.warning)
+    assert any("Other models are loaded" in w.value and "omega-big:8b" in w.value for w in at.warning)
     box = next(c for c in at.checkbox if c.label.startswith("unload other models"))
     assert box.value is True
     assert next(r for r in at.radio if r.label == "start").value == "warm"
@@ -124,13 +124,13 @@ def test_results_tab_shows_power_warning_and_resources(fake_ollama, legacy_resul
     monkeypatch.setattr(evaluator, "power_state", lambda: next(states))
     sample = balanced_sample(toy_df.assign(source_id=[f"t:{i}" for i in toy_df["id"]]), 20)
     run = evaluator.run_evaluation(
-        "qwen2.5:1.5b", sample.df, num_gpu=0, prompt_variant="zeroshot", tree_rss_reader=lambda: 10.0,
+        "acme-small:1b", sample.df, num_gpu=0, prompt_variant="zeroshot", tree_rss_reader=lambda: 10.0,
         sampler_factory=lambda m: ResourceSampler(m, interval_s=0.01, gpu_reader=lambda: (None, None),
                                                   power_reader=lambda: None),
     )
     report = build_run_report(run, df_sample=sample.df, dataset_choice="seed+sms", sample_info=sample.info,
                               code={"commit": None, "dirty": None, "changed_files": None})
-    path = save_results(report, "qwen2.5:1.5b", prompt_variant="zeroshot")
+    path = save_results(report, "acme-small:1b", prompt_variant="zeroshot")
     os.utime(path, (4_000_000_000, 4_000_000_000))
 
     at = AppTest.from_file(APP, default_timeout=120)
@@ -139,3 +139,46 @@ def test_results_tab_shows_power_warning_and_resources(fake_ollama, legacy_resul
     assert any("AC power changed during this run" in w.value for w in at.tabs[2].warning)
     text = " ".join(re.sub(r"<[^>]+>", " ", m.value) for m in at.tabs[2].markdown)
     assert "model memory (Ollama)" in text and "fits laptop-8gb" in text
+
+
+def _tab_text(at, index):
+    import re
+
+    return " ".join(re.sub(r"<[^>]+>", " ", m.value) for m in at.tabs[index].markdown)
+
+
+def test_results_shows_both_unknown_modes_with_confidence_intervals(fake_ollama, legacy_results_dir, toy_df):
+    import re
+
+    from backend.evaluator import run_evaluation
+    from backend.profiler import ResourceSampler
+    from backend.run_report import build_run_report
+    from backend.sampling import balanced_sample
+    from backend.utils import save_results
+
+    sample = balanced_sample(toy_df.assign(source_id=[f"t:{i}" for i in toy_df["id"]]), 20)
+    run = run_evaluation(
+        "acme-small:1b", sample.df, num_gpu=0, prompt_variant="zeroshot", tree_rss_reader=lambda: 10.0,
+        sampler_factory=lambda m: ResourceSampler(m, interval_s=0.01, gpu_reader=lambda: (None, None),
+                                                  power_reader=lambda: True),
+    )
+    report = build_run_report(run, df_sample=sample.df, dataset_choice="seed+sms", sample_info=sample.info,
+                              code={"commit": None, "dirty": None, "changed_files": None})
+    path = save_results(report, "acme-small:1b", prompt_variant="zeroshot")
+    os.utime(path, (4_000_000_000, 4_000_000_000))
+
+    at = AppTest.from_file(APP, default_timeout=120)
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    text = _tab_text(at, 2)
+    assert "unknown = error" in text and "excluding unknown" in text
+    assert re.search(r"\d\.\d{3} \[\d\.\d{3}; \d\.\d{3}\]", text)  # value [low; high]
+    assert "per channel" in text and "generation tokens/s" in text
+    assert not any("Measured before the Ollama URL fix" in w.value for w in at.tabs[2].warning)
+    compare = _tab_text(at, 3)
+    assert "F1 (unknown = error)" in compare and "Latency inflated" in compare  # legacy runs are selected too
+
+
+def test_legacy_run_in_results_is_flagged_as_latency_inflated(app):
+    assert any("Measured before the Ollama URL fix" in w.value for w in app.tabs[2].warning)
+

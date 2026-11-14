@@ -214,7 +214,7 @@ def _quick_sampler(model_name):
 
 def test_warm_start(fake_ollama, sample):
     run = evaluator.run_evaluation(
-        "qwen2.5:1.5b", sample, num_gpu=0, prompt_variant="zeroshot",
+        "acme-small:1b", sample, num_gpu=0, prompt_variant="zeroshot",
         sampler_factory=_quick_sampler, tree_rss_reader=lambda: 42.0,
     )
     assert run.start_mode == "warm"
@@ -227,9 +227,9 @@ def test_warm_start(fake_ollama, sample):
 
 
 def test_cold_start_unloads_and_excludes_the_first_latency(fake_ollama, sample):
-    fake_ollama.load("qwen2.5:1.5b")  # already loaded: cold must unload it first
+    fake_ollama.load("acme-small:1b")  # already loaded: cold must unload it first
     run = evaluator.run_evaluation(
-        "qwen2.5:1.5b", sample, num_gpu=0, prompt_variant="zeroshot", start_mode="cold",
+        "acme-small:1b", sample, num_gpu=0, prompt_variant="zeroshot", start_mode="cold",
         sampler_factory=_quick_sampler, tree_rss_reader=lambda: 42.0,
     )
     assert run.cold_unload_confirmed is True
@@ -246,41 +246,41 @@ def test_cold_start_unloads_and_excludes_the_first_latency(fake_ollama, sample):
 
 
 def test_cold_start_timeout_is_recorded(fake_ollama, sample, monkeypatch):
-    fake_ollama.load("qwen2.5:1.5b")
-    fake_ollama.unload_ignored.add("qwen2.5:1.5b")  # the server never unloads it
+    fake_ollama.load("acme-small:1b")
+    fake_ollama.unload_ignored.add("acme-small:1b")  # the server never unloads it
     monkeypatch.setattr(evaluator, "COLD_UNLOAD_TIMEOUT_S", 0.05)
     run = evaluator.run_evaluation(
-        "qwen2.5:1.5b", sample, num_gpu=0, prompt_variant="zeroshot", start_mode="cold",
+        "acme-small:1b", sample, num_gpu=0, prompt_variant="zeroshot", start_mode="cold",
         sampler_factory=_quick_sampler, tree_rss_reader=lambda: 1.0,
     )
     assert run.cold_unload_confirmed is False
 
 
 def test_other_loaded_models_are_reported_and_unloaded(fake_ollama, sample):
-    fake_ollama.load("llama3.2:latest")
+    fake_ollama.load("zeta-chat:latest")
     run = evaluator.run_evaluation(
-        "qwen2.5:1.5b", sample, num_gpu=0, prompt_variant="zeroshot",
+        "acme-small:1b", sample, num_gpu=0, prompt_variant="zeroshot",
         sampler_factory=_quick_sampler, tree_rss_reader=lambda: 1.0,
     )
-    assert run.prerun["ollama_loaded_models"] == ["llama3.2:latest"]
+    assert run.prerun["ollama_loaded_models"] == ["zeta-chat:latest"]
     assert run.prerun["other_models_loaded"] is True
-    assert run.prerun["other_models_unloaded"] == ["llama3.2:latest"]
-    assert "llama3.2:latest" not in fake_ollama.loaded
+    assert run.prerun["other_models_unloaded"] == ["zeta-chat:latest"]
+    assert "zeta-chat:latest" not in fake_ollama.loaded
 
 
 def test_other_models_can_be_kept(fake_ollama, sample):
-    fake_ollama.load("llama3.2:latest")
+    fake_ollama.load("zeta-chat:latest")
     run = evaluator.run_evaluation(
-        "qwen2.5:1.5b", sample, num_gpu=0, prompt_variant="zeroshot", unload_other_models=False,
+        "acme-small:1b", sample, num_gpu=0, prompt_variant="zeroshot", unload_other_models=False,
         sampler_factory=_quick_sampler, tree_rss_reader=lambda: 1.0,
     )
     assert run.prerun["other_models_loaded"] is True and run.prerun["other_models_unloaded"] == []
-    assert "llama3.2:latest" in fake_ollama.loaded
+    assert "zeta-chat:latest" in fake_ollama.loaded
 
 
 def test_unknown_start_mode_is_rejected(fake_ollama, sample):
     with pytest.raises(ValueError, match="start mode"):
-        evaluator.run_evaluation("qwen2.5:1.5b", sample, start_mode="lukewarm")
+        evaluator.run_evaluation("acme-small:1b", sample, start_mode="lukewarm")
 
 
 @pytest.mark.parametrize(
@@ -298,7 +298,7 @@ def test_report_has_resources_hardware_and_power(fake_ollama, sample, monkeypatc
     states = iter([{"on_ac_power": True}, {"on_ac_power": False}])
     monkeypatch.setattr(evaluator, "power_state", lambda: next(states))
     run = evaluator.run_evaluation(
-        "qwen2.5:1.5b", sample, num_gpu=0, prompt_variant="zeroshot",
+        "acme-small:1b", sample, num_gpu=0, prompt_variant="zeroshot",
         sampler_factory=_quick_sampler, tree_rss_reader=lambda: 1.0,
     )
     report = build_run_report(run, df_sample=sample, dataset_choice="x", sample_info=None,

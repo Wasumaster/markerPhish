@@ -337,6 +337,8 @@ def build_manifest(
         "inference": {"options": options_sent, **request_fields},
         "software": {
             "ollama_version": ollama if ollama is not None else ollama_version(),
+            # Recorded since the 127.0.0.1 fix; its absence marks latency-inflated runs.
+            "ollama_url": OLLAMA_BASE_URL,
             "code": code if code is not None else code_version(),
             "python_version": platform.python_version(),
             "os": platform.platform(),
@@ -462,3 +464,22 @@ def report_power_warning(report: dict) -> str | None:
     if power.get("on_battery_during_run"):
         return "This run ran on battery power. On a laptop this lowers CPU clocks, so latency is not comparable."
     return None
+
+
+LATENCY_INFLATION_NOTE = (
+    "Measured before the Ollama URL fix: requests went to \"localhost\", which on Windows first tries "
+    "IPv6 and adds about 2 s of connection delay to every request. Latency and throughput of this run are "
+    "inflated (about +2 s per message); detection metrics are not affected."
+)
+
+
+def report_latency_inflated(report: dict) -> bool:
+    """
+    True for runs whose latencies include the ~2 s localhost/IPv6 connection delay:
+    every run without a recorded ollama_url (legacy runs and runs made before the
+    fix) or with "localhost" in it.
+    """
+    software = ((report or {}).get("manifest") or {}).get("software") or {}
+    url = software.get("ollama_url")
+    return url is None or "localhost" in str(url).lower()
+
