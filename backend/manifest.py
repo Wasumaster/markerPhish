@@ -307,7 +307,11 @@ def build_manifest(
     Assemble the manifest block of a run. Collectors (model, code, ollama, power)
     are called here unless passed in (tests and the batch runner pass them).
     """
-    template = prompt_template(prompt_variant, output_schema)
+    from config import PROMPT_VARIANTS
+
+    # Runs without a prompt (the non-LLM baseline) store no template and no hash.
+    has_prompt = prompt_variant in PROMPT_VARIANTS
+    template = prompt_template(prompt_variant, output_schema) if has_prompt else {"templates": {}, "output_schema": None}
     info = sample_info or {}
     return {
         "protocol_version": PROTOCOL_VERSION,
@@ -329,7 +333,7 @@ def build_manifest(
         },
         "prompt": {
             "prompt_variant": prompt_variant,
-            "prompt_template_hash": prompt_template_hash(template),
+            "prompt_template_hash": prompt_template_hash(template) if has_prompt else None,
             "message_placeholder": MESSAGE_PLACEHOLDER,
             **template,
         },

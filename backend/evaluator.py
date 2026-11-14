@@ -75,6 +75,7 @@ class InferenceResult:
     request_status: str = "ok"  # ok | timeout | error
     truncated_output: bool = False  # output hit num_predict: not parsed, counted as unknown
     input_possibly_truncated: bool = False  # prompt_eval_count reached num_ctx - num_predict
+    score: float | None = None  # probability of "malicious" when the classifier gives one (baseline)
     prompt_eval_duration_s: float | None = None  # Ollama's own timings (seconds)
     eval_duration_s: float | None = None
     total_duration_s: float | None = None

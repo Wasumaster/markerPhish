@@ -142,6 +142,7 @@ def main() -> None:
             st.session_state["dataset_report"] = dataset_report
             st.session_state["sample_info"] = sample_info
             st.session_state["dataset_choice"] = dataset_choice
+            st.session_state["dataset_full_df"] = load_dataset_cached(dataset_choice, PREPROCESSING_VERSION)[0]
             render_sidebar_dataset_summary(df_sample)
 
         render_data_overview(df_sample, dataset_report=dataset_report, sample_info=sample_info)

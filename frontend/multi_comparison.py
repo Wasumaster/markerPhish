@@ -76,6 +76,7 @@ def _extract_report_summary(filename: str, report: dict) -> dict:
     return {
         "filename": filename,
         "latency_inflated": bool(report.get("latency_inflated")),
+        "is_baseline": bool(report.get("baseline")),
         "f1_ue": ue.get("f1"),
         "f1_ue_text": fmt_ci(ue.get("f1"), (ue.get("ci") or {}).get("f1")),
         "recall_ue": ue.get("recall"),
@@ -150,6 +151,8 @@ def _summary_table(comp_df: pd.DataFrame) -> None:
     for i, row in enumerate(comp_df.itertuples(index=False)):
         legacy = row.prompt_variant == LEGACY_PROMPT_VARIANT
         model_html = esc(row.model_name) + (' <span class="mp-faint">legacy</span>' if legacy else "")
+        if row.is_baseline:
+            model_html += ' <span class="mp-faint">baseline · trained in-distribution</span>'
         cells = [
             cell(model_html, raw=True),
             run_timestamp(row.filename) or DASH,

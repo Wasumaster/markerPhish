@@ -13,6 +13,8 @@ import pandas as pd
 import psutil
 import streamlit as st
 
+from backend.baseline import BASELINE_NAME, BASELINE_VARIANT, build_baseline_report
+from backend.baseline import CAVEAT as BASELINE_CAVEAT
 from backend.evaluator import loaded_models, other_loaded_models, run_evaluation
 from backend.manifest import model_details
 from backend.options import CONFIGURABLE, OptionsError, resolve_options
@@ -115,6 +117,8 @@ def render_evaluation_runner(
             disabled=st.session_state.get("is_running", False) or options_error,
         )
 
+    _render_baseline_button(df_eval)
+
     if start_btn:
         st.session_state["is_running"] = True
         # The flag is reset in `finally`, so an exception or a rerun that interrupts
@@ -130,6 +134,29 @@ def render_evaluation_runner(
             st.error(f"Evaluation failed: {exc}")
         finally:
             st.session_state["is_running"] = False
+
+
+def _render_baseline_button(df_eval: pd.DataFrame) -> None:
+    """Optional non-LLM reference: TF-IDF + logistic regression on the same sample (seconds, no Ollama)."""
+    with st.expander("non-LLM baseline", expanded=False):
+        note(BASELINE_CAVEAT)
+        if not st.button("Run TF-IDF baseline on this sample", disabled=st.session_state.get("is_running", False)):
+            return
+        df_full = st.session_state.get("dataset_full_df")
+        if df_full is None:
+            st.error("Dataset not loaded. Open the Dataset tab first.")
+            return
+        with st.spinner("Training on the records outside the sample, then predicting the sample..."):
+            report = build_baseline_report(
+                df_full, df_eval, st.session_state.get("sample_info"), st.session_state.get("dataset_choice")
+            )
+            filepath = save_results(report, BASELINE_NAME, prompt_variant=BASELINE_VARIANT)
+        name = os.path.basename(filepath)
+        st.session_state["report"] = report
+        st.session_state["selected_result_file"] = name
+        st.session_state["loaded_filename"] = name
+        f1 = report["detection"]["overall"]["unknown_as_error"]["f1"]
+        st.success(f"Baseline saved to {filepath} (F1 {f1}).")
 
 
 @st.cache_data(ttl=300, show_spinner=False)

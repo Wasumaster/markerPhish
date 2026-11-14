@@ -16,8 +16,8 @@ If a session restarts, resume from the first unchecked phase below.
 | 5b. Inference options | done 2026-11-14 (autonomous, committed) |
 | 6. Batch mode | done 2026-11-14 (autonomous, committed); pilot NOT run (session rule 2) |
 | 7. Optimum analysis | done 2026-11-14 (autonomous, committed) |
-| 8. Non-LLM baseline | in progress (autonomous) |
-| 9. UI | not started |
+| 8. Non-LLM baseline | done 2026-11-14 (autonomous, committed) |
+| 9. UI | in progress (autonomous) |
 | 10. Documentation | not started |
 | Final report | not started |
 
@@ -70,6 +70,12 @@ D29. Candidate set = the runs selected in Compare (default: all). The user contr
 D30. Profiles editable per session (RAM GB, P95 limit, headroom factor) in a Compare expander; defaults stay in config.CONSTRAINT_PROFILES; nothing is written to disk. Alternative: persist edits to a JSON file. Revert: frontend/recommendation._edit_profiles.
 D31. Holm scope. What: in the recommendation, Holm adjusts the winner-vs-other comparisons of one profile (as specified); the pairwise table adjusts over all pairs shown. Significance level 0.05 (optimum.ALPHA).
 D32. Pareto. What: non-domination over the three criteria (F1 unknown = error, /api/ps model memory, P95); runs missing a value are not placed. The chart shows F1 vs memory with Pareto points filled and the others open, plus one dashed budget line per profile; one ink colour for all runs (scales to any number of models).
+D33. Baseline model. What: TfidfVectorizer(word 1-2 grams, min_df 2, max_features 100k, sublinear tf) + LogisticRegression(C 4, liblinear, class_weight balanced, random_state = sample seed), threshold 0.5. Why: standard, fast (7.9 s training on 6,982 records), deterministic. Alternative: char n-grams or a linear SVM. Revert: backend/baseline.py constants.
+D34. Baseline "model memory". What: the optimum criterion uses the size of the pickled vectorizer + classifier (2.7 MB on seed+sms), because there is no Ollama /api/ps figure; peak RSS is the whole Python process (~217 MB, includes the app and the dataset) and is reported but not used. Documented in report.baseline.model_memory_definition. Alternative: tracemalloc of prediction. Revert: baseline.evaluate.
+D35. Baseline latency. What: one record at a time (vectorize + predict_proba), so latency per message is comparable to an LLM request. Training time and memory (tracemalloc peak, RSS delta) are separate fields in report.baseline.training.
+D36. How to run it. What: an expander "non-LLM baseline" in the Run tab with a button that trains and evaluates on the current sample (seconds, never contacts Ollama), plus `python -m backend.baseline [--dataset] [--size] [--seed]`. Why: the user only uses the app (session rule 7). Revert: frontend/runner._render_baseline_button.
+D37. The baseline can win a profile. What: it is analysed like any other run (as specified) and labelled "(baseline)" in the recommendation and "baseline · trained in-distribution" in Compare; the caveat is in the report, the Run tab and OVERVIEW. Real check: F1 0.974 [unknown = error] on the seed+sms 1000 sample (email 0.952, SMS 0.996), 1.4 ms per message; the check's run file was deleted afterwards (not an earlier run).
+D38. Runs without a prompt. What: the manifest stores prompt_variant "baseline", no templates and prompt_template_hash null; result labels recognise "baseline".
 D11. Optional items skipped: base-rate precision, cost-weighted error, logprob scores / ROC / PR (session rule 1).
 
 ## Checklist
@@ -166,7 +172,13 @@ D11. Optional items skipped: base-rate precision, cost-weighted error, logprob s
 - [x] eligibility: protocol 2, not dev, matching fingerprint; excluded listed with reasons
 - [x] Compare: Recommendation section, Pareto scatter with budget lines, pairwise McNemar table; existing scatters kept
 
-### Phases 8-10, final report
+### Phase 8: non-LLM baseline
+- [x] TF-IDF + LR, fixed seed; training excludes sampled source_ids and their groups
+- [x] same sample; normal run JSON "baseline-tfidf-lr"; prediction profiled on the Python process; training time / memory separate
+- [x] probability scores stored (ROC/PR shown in Phase 9 for runs with scores)
+- [x] appears in Compare + optimum analysis, labelled; in-distribution caveat (OVERVIEW in Phase 10)
+
+### Phases 9-10, final report
 See `docs/REFACTOR_TASK.md`; items are added here when the phase starts.
 
 ## Phase log
@@ -342,4 +354,7 @@ Done:
 
 ### Phase 7 (2026-11-14, autonomous)
 Done: backend/optimum.py (eligibility, run_point, pareto_front, analyze, pairwise_pvalues); frontend/recommendation.py (editable profiles, recommendation table with CI and "not significantly different" alternatives + caveat, Pareto scatter with dashed budget lines, pairwise McNemar table, excluded runs); wired into Compare after the summary table. Tests: tests/test_optimum.py (12: eligibility reasons, reference fingerprint, Pareto incl. ties, per-profile winner, feasibility, latency limit, tie-breaking, unknown = error ranking, Holm, differing options, 30 models, empty input) + 1 AppTest (3 fake models -> recommendation per profile, 6 legacy runs excluded, profile edit changes the budget). 280 tests pass.
+
+### Phase 8 (2026-11-14, autonomous)
+Done: backend/baseline.py (training_split, train, evaluate, build_baseline_report, CLI); InferenceResult.score + raw_predictions.score; manifest without prompt; Run tab "non-LLM baseline" expander + button; Compare label. Tests: tests/test_baseline.py (6, incl. a real-data leakage check) + 1 AppTest (button -> one baseline run saved, no Ollama call). 287 tests pass. Real check: see D37 (run file deleted afterwards; results/ holds only the 6 legacy runs).
 

@@ -272,3 +272,16 @@ def test_compare_recommends_per_profile(fake_ollama, legacy_results_dir, toy_df)
     at.number_input(key="prof_ram_laptop-8gb").set_value(2.0).run()
     assert "1,024.0 MB" in _tab_text(at, 3)  # 2 GB x headroom 0.5
 
+
+
+def test_baseline_button_saves_a_baseline_run(fake_ollama, results_dir):
+    at = AppTest.from_file(APP, default_timeout=300)
+    at.run()
+    next(s for s in at.sidebar.selectbox if s.label == "sample size").set_value(50)
+    at.run()
+    next(b for b in at.button if b.label == "Run TF-IDF baseline on this sample").click().run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert any("Baseline saved" in m.value for m in at.success)
+    files = os.listdir(results_dir)
+    assert len(files) == 1 and files[0].startswith("eval_baseline-tfidf-lr_baseline_")
+    assert fake_ollama.generate_calls() == []  # the baseline never talks to Ollama

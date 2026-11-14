@@ -196,7 +196,7 @@ def format_result_label(filename: str) -> str:
         time_str = parts[-1]
         model_parts = parts[1:-2]
         variant = LEGACY_PROMPT_VARIANT
-        if len(model_parts) > 1 and model_parts[-1] in PROMPT_VARIANTS:
+        if len(model_parts) > 1 and (model_parts[-1] in PROMPT_VARIANTS or model_parts[-1] == "baseline"):
             variant = model_parts[-1]
             model_parts = model_parts[:-1]
         model_part = "_".join(model_parts)

@@ -384,6 +384,7 @@ def build_full_report(
                 "request_status": getattr(r, "request_status", "ok"),
                 "truncated_output": getattr(r, "truncated_output", False),
                 "input_possibly_truncated": getattr(r, "input_possibly_truncated", False),
+                "score": getattr(r, "score", None),
                 "prompt_eval_count": getattr(r, "prompt_eval_count", None),
                 "eval_count": getattr(r, "eval_count", None),
                 "prompt_eval_duration_s": getattr(r, "prompt_eval_duration_s", None),
