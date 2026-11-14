@@ -19,7 +19,7 @@ If a session restarts, resume from the first unchecked phase below.
 | 8. Non-LLM baseline | done 2026-11-14 (autonomous, committed) |
 | 9. UI | done 2026-11-14 (autonomous, committed) |
 | 10. Documentation | done 2026-11-14 (autonomous, committed) |
-| Final report | in progress (autonomous) |
+| Final report | done 2026-11-14 (committed) |
 
 Rules per phase: run tests, AppTest every tab, update this file, report, wait for "continue". Never commit.
 
@@ -198,7 +198,7 @@ D11. Optional items skipped: base-rate precision, cost-weighted error, logprob s
 - [x] README: overview, setup, one evaluation, batch + overnight on Windows, links
 
 ### Final report
-- [ ] written below and in chat
+- [x] written below and in chat
 
 ## Phase log
 
@@ -382,4 +382,73 @@ Done: backend/compare.py (hidden_reason, has_valid_predictions, visible_runs, co
 
 ### Phase 10 (2026-11-14, autonomous)
 Done: OVERVIEW.md (16 sections, methodology with formulas and measured numbers), README.md, app.py docstring, tests/test_docs.py (19). 315 tests pass; coverage backend + config 92%. Live AppTest: 4 tabs, no errors, nothing loaded.
+
+## FINAL REPORT (2026-11-14)
+
+All phases 1-10 are done and committed (one commit per phase: 1ae3265, 496f457, da6ec73, f540943, 9d941a7, cf49d05, baaf8ab, 8ded19f, 5e52d91, 6d037fc). Optional items were skipped (session rule 1). No pilot / main / batch experiment was run (session rule 2). results/ still holds exactly the 6 legacy runs, untouched.
+
+### Audit weaknesses
+| # | item | status | where |
+|---|---|---|---|
+| 1 | model did not see Sender / URL; 31-61% of emails cut | done | backend/preprocessing.py, backend/data_loader.py |
+| 2 | no memory measurement | done | backend/profiler.py, backend/run_report.py (resources) |
+| 3 | no optimum | done | backend/optimum.py, frontend/recommendation.py |
+| 4 | small samples, no uncertainty / significance | done (sizes to 1000, CIs, McNemar; repetitions via batch) | backend/stats.py, backend/detection.py, backend/sampling.py |
+| 5 | report insufficient to reproduce | done | backend/manifest.py |
+| 6 | legacy runs in Compare by default; 100% unknown run "best" | done | backend/compare.py, frontend/multi_comparison.py |
+| 7 | duplicates, related rephrasings, synthetic data | done (dedup, group-aware sampling/bootstrap, documented) | backend/preprocessing.py, backend/sampling.py, OVERVIEW §2-3, §13.2 |
+| 8 | balanced classes vs real base rate, FP/FN costs | partly: FPR interpretation documented; base-rate precision and costs were optional and skipped | OVERVIEW §2.4 |
+| 9 | no binary metrics per channel | done | backend/detection.py |
+| 10 | unknown excluded inflates metrics | done (unknown = error is primary) | backend/stats.py |
+| 11 | throughput incl. UI, failures in latency, tokens not stored | done | backend/detection.compute_timing, backend/evaluator.py |
+| 12 | no batch automation | done | backend/experiment.py, backend/batch.py |
+| 13 | Ollama state not controlled | done | backend/evaluator.prepare_ollama, warm/cold |
+| 14 | no tests | done (315 tests) | tests/ |
+| 15 | documentation mismatches | done | OVERVIEW.md, README.md, app.py, tests/test_docs.py |
+| 16 | unpinned dependencies, unused matplotlib/seaborn | done | requirements.txt, requirements-dev.txt |
+| 17 | "select all" bug | done | frontend/multi_comparison.py |
+| 18 | is_running bug | done | frontend/runner.py |
+| 19 | startswith model match | done | backend/evaluator.find_model_size |
+| 20 | no dataset cache | done | app.py |
+| 21 | compatibility assumed true = valid | done | backend/utils.ensure_report_compatibility |
+| 22 | dead code | done | (removed) |
+| 23 | stale hardware profile | done (per-run hardware block) | backend/hardware.hardware_block |
+
+### Audit recommendations
+| # | item | status | where |
+|---|---|---|---|
+| 1 | memory / CPU / VRAM profiling, warm/cold, hardware block | done | backend/profiler.py, backend/hardware.py |
+| 2 | Sender + URL headers, link-preserving truncation | done | backend/preprocessing.py |
+| 3 | manifest | done | backend/manifest.py |
+| 4 | batch mode | done (CLI; Run-tab batch section optional, skipped) | backend/batch.py |
+| 5 | CIs, McNemar, larger samples | done | backend/stats.py, backend/detection.py |
+| 6 | Pareto front, constrained ranking | done | backend/optimum.py |
+| 7 | dedup, grouping, spam rationale | done | backend/preprocessing.py, config.SPAM_EXCLUSION_RATIONALE |
+| 8 | per-channel binary metrics, unknown = error | done | backend/detection.py |
+| 9 | token / timing fields, tokens/s, throughput from inference time | done | backend/evaluator.py, backend/detection.py |
+| 10 | resource-optimization axis (quantization, num_ctx, num_thread, CPU vs GPU) | partly: fully supported (options, several tags of one model, GPU mode), no experiment run | backend/options.py, backend/experiment.py |
+| 11 | base-rate precision, FP/FN cost | optional, skipped | — |
+| 12 | hide legacy runs in Compare | done | backend/compare.py |
+| 13 | documentation fixes | done | OVERVIEW.md, README.md |
+| 14 | tests + pinned versions | done | tests/, requirements*.txt |
+| 15 | bug fixes | done | see weaknesses 17-21 |
+| 16 | non-LLM baseline | done | backend/baseline.py |
+
+### Tests and coverage
+315 tests pass (python -m pytest, ~2 min, fake Ollama, no model loaded). Coverage backend + config: 92% (lowest: hardware.py 62% and profiler.py 84%, whose remaining lines are NVIDIA / OS-specific paths).
+
+### Real checks (each <= 5 inference requests, nothing left loaded)
+- token calibration (Phase 2/2a, before the session rules), prompt-cache behaviour (3 requests), CoT output length (5), options + truncation (2), batch --dry-run (0), final end-to-end (5).
+- Final end-to-end: smallest installed model, fewshot, warm, 4 real records (one per cell) of the 1000-record seed+sms sample + the TF-IDF baseline on the same 4 records. The recommendation pipeline ran: both runs feasible in both profiles; the baseline won both (F1 1.0 vs 1.0 on 4 records, ties broken by memory 2.7 MB vs 1,119 MB), the LLM run "not significantly different" (as expected with 4 records). This shows the pipeline works, not a result. LLM run: model memory 1,119 MB, peak RSS 1,247 MB, mean CPU 49%, 45 samples, sampler cost 38 ms, generation 23.5 tok/s, protocol 2, dev false, commit 6d037fc, clean tree.
+
+### What the user should decide next
+1. Prompt variant per model: run the pilot (all models x 3 variants, 250 records) and pick per model; the batch mode can do it unattended (format in OVERVIEW §12).
+2. Provisional values: DEFAULT_NUM_PREDICT = 256 and chars-per-token 2.4 (worst-case margin 8.4%); keep, or calibrate new models with `python -m backend.calibrate <model>`.
+3. Quantization as an axis (supported, not run).
+4. Baseline in the recommendation: as specified it competes like any run, and being tiny and trained in-distribution it will usually win; decide whether the thesis reports the recommendation with or without it (one condition in backend/optimum.eligibility).
+5. Headroom factor 0.5 and the two profiles (editable per session in Compare).
+6. Whether the paraphrase-robustness experiment on the rephrased set is wanted.
+
+### What the user needs to run
+Nothing else is required: start the app, pick a model in the Run tab, choose 50 / 100 / 250 / 500 / 1000 and press Run evaluation. For measurement runs: AC power, other heavy programs closed. The app works with any model Ollama lists.
 
