@@ -10,9 +10,10 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from config import channel_for_source, to_binary_label
+from config import SPAM_EXCLUSION_RATIONALE, channel_for_source, to_binary_label
 from ui.components import (
     cell,
+    esc,
     colored,
     data_table,
     html_block,
@@ -42,18 +43,148 @@ def _label_color(label: str) -> str:
     return MALICIOUS if to_binary_label(label) == "malicious" else SAFE
 
 
-def render_data_overview(df: pd.DataFrame) -> None:
+def _n(value) -> str:
+    return f"{int(value):,}"
+
+
+def _render_sample_section(sample_info: dict) -> None:
+    """Per-cell allocation of the current sample (balanced, channel-stratified)."""
+    cells = sample_info["cells"]
+    rows = [
+        [c["channel"], c["label"], _n(c["target"]), _n(c["count"]), _n(c["groups_in_sample"]), _n(c["capacity_records"])]
+        for c in cells
+    ]
+    total = [
+        "all",
+        "",
+        _n(sum(c["target"] for c in cells)),
+        _n(sample_info["actual_size"]),
+        _n(sample_info["n_groups"]),
+        _n(sum(c["capacity_records"] for c in cells)),
+    ]
+    with st.container():
+        section_label("sample cells")
+        data_table(
+            ["channel", "label", "target", "in sample", "groups", "available"],
+            rows,
+            numeric={2, 3, 4, 5},
+            total=total,
+            max_width="640px",
+        )
+        order = ", ".join(k.replace("|", " ") for k in sample_info["allocation_order"])
+        grouping = (
+            "Group-aware: a PhishFuzzer seed email and its rephrasings are all in the sample or all out."
+            if sample_info["group_aware"]
+            else "Every group has one record here, so group-aware sampling changes nothing."
+        )
+        note(
+            f"Seed {sample_info['sample_seed']}. When the size is not divisible by the number of cells, "
+            f"the extra records go to the cells in this order: {order}. {grouping}"
+        )
+
+
+def _render_preprocessing_report(report: dict) -> None:
+    """What preprocessing did per source: spam removal, deduplication, truncation, capacity."""
+    section_title(
+        "Preprocessing",
+        f"Preprocessing version {report['preprocessing_version']}. Counts cover the whole dataset choice, "
+        "before sampling.",
+    )
+    sources = report["sources"]
+
+    with st.container():
+        section_label("records by step")
+        data_table(
+            ["source", "raw", "spam removed", "unrecognized", "empty", "exact dupes",
+             "normalized dupes", "label conflicts", "final"],
+            [
+                [
+                    s["source"],
+                    _n(s["raw_records"]),
+                    _n(s["excluded_spam"]),
+                    _n(s["unrecognized_label"]),
+                    _n(s["empty"]),
+                    _n(s["dedup_exact_duplicates"]),
+                    _n(s["dedup_normalized_duplicates"]),
+                    _n(s["dedup_label_conflict_records"]),
+                    _n(s["final"]),
+                ]
+                for s in sources
+            ],
+            numeric=set(range(1, 9)),
+        )
+        note(
+            "Duplicates are removed within each source, on the full model input before truncation: exact "
+            "copies, then copies that are equal after lowercasing, collapsing whitespace and stripping "
+            "punctuation at the ends. If copies of one text carry different labels, all of them are dropped "
+            "(label conflicts)."
+        )
+
+    with st.container():
+        section_label("truncation")
+        data_table(
+            ["source", "records", "truncated", "share", "median chars removed", "max chars removed",
+             "links moved", "records with moved links", "longest input"],
+            [
+                [
+                    s["source"],
+                    _n(t["records"]),
+                    _n(t["truncated"]),
+                    f"{t['truncated_pct']:.1%}",
+                    _n(t["chars_removed_median"]),
+                    _n(t["chars_removed_max"]),
+                    _n(t["links_moved_total"]),
+                    _n(t["records_with_links_moved"]),
+                    _n(t["max_input_chars"]),
+                ]
+                for s in sources
+                for t in [s["truncation"]]
+            ],
+            numeric=set(range(1, 9)),
+        )
+        note(
+            "Email input: From, Subject and Links header lines, then the body. Header plus body is limited to "
+            f"{report['message_max_chars']:,} characters, so the longest prompt plus the output fits the context "
+            "window. The header is never cut, only the body. Links that appear only in the cut-off part of the "
+            "body are moved into the Links header, so truncation removes no link."
+        )
+
+    with st.container():
+        section_label("available per cell")
+        data_table(
+            ["channel", "label", "unique records", "groups"],
+            [[c["channel"], c["label"], _n(c["records"]), _n(c["groups"])] for c in report["cells"]],
+            numeric={2, 3},
+            max_width="640px",
+        )
+        note(f"Largest balanced sample for this dataset choice: {report['max_balanced_size']:,} records.")
+
+    with st.expander("why spam is excluded", expanded=False):
+        st.markdown(f'<p class="mp-desc">{esc(SPAM_EXCLUSION_RATIONALE)}</p>', unsafe_allow_html=True)
+
+
+def render_data_overview(
+    df: pd.DataFrame | None,
+    dataset_report: dict | None = None,
+    sample_info: dict | None = None,
+) -> None:
     """
-    Render the dataset overview and message browser component.
+    Render the sample overview, the preprocessing report and the message browser.
 
     Args:
-        df: Unified DataFrame containing records with columns:
-            id, text, true_label, source
+        df: the current sample (unified schema: id, source_id, text, true_label, source, ...)
+        dataset_report: report of backend.data_loader.load_dataset_with_report
+        sample_info: info of backend.sampling.balanced_sample
     """
     page_title("Dataset")
 
+    if sample_info and sample_info.get("fallback"):
+        st.warning(sample_info["fallback_reason"])
+
     if df is None or df.empty:
         st.warning("No records loaded in dataset.")
+        if dataset_report:
+            _render_preprocessing_report(dataset_report)
         return
 
     # ──────────────────────────────────────────────
@@ -130,6 +261,11 @@ def render_data_overview(df: pd.DataFrame) -> None:
             max_width="640px",
         )
 
+    if sample_info:
+        _render_sample_section(sample_info)
+    if dataset_report:
+        _render_preprocessing_report(dataset_report)
+
     # ──────────────────────────────────────────────
     # 4. Message browser & inspector
     # ──────────────────────────────────────────────
@@ -171,16 +307,19 @@ def render_data_overview(df: pd.DataFrame) -> None:
         )
 
     # Message table
-    preview_df = filtered_df[["id", "source", "true_label", "text"]].copy()
+    preview_df = filtered_df.copy()
+    if "source_id" not in preview_df:
+        preview_df["source_id"] = preview_df["source"]
+    preview_df = preview_df[["id", "source_id", "true_label", "text"]]
     preview_df["text_preview"] = preview_df["text"].str.slice(0, 160).str.replace("\n", " ") + "..."
 
     if len(preview_df) <= _HTML_TABLE_ROW_LIMIT:
         data_table(
-            ["id", "source", "label", "text"],
+            ["id", "source id", "label", "text"],
             [
                 [
                     str(r.id),
-                    r.source,
+                    r.source_id,
                     cell(r.true_label, color=_label_color(r.true_label), bold=True),
                     r.text_preview,
                 ]
@@ -191,8 +330,8 @@ def render_data_overview(df: pd.DataFrame) -> None:
             max_height="420px",
         )
     else:
-        table = preview_df[["id", "source", "true_label", "text_preview"]].rename(
-            columns={"true_label": "label", "text_preview": "text"}
+        table = preview_df[["id", "source_id", "true_label", "text_preview"]].rename(
+            columns={"source_id": "source id", "true_label": "label", "text_preview": "text"}
         )
         st.dataframe(
             table.style.map(lambda v: f"color: {_label_color(v)}; font-weight: 600;", subset=["label"]),
@@ -214,6 +353,9 @@ def render_data_overview(df: pd.DataFrame) -> None:
                     ("channel label", cell(selected_row["true_label"], color=_label_color(selected_row["true_label"]), bold=True)),
                     ("binary category", to_binary_label(selected_row["true_label"])),
                     ("data source", selected_row["source"]),
+                    ("source id", selected_row.get("source_id", "")),
+                    ("group id", selected_row.get("group_id", "")),
+                    ("truncated", "yes" if selected_row.get("truncated") else "no"),
                 ],
                 headers=("field", "value"),
             )

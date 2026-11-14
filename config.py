@@ -37,14 +37,29 @@ SMISHING_CSV = os.path.join(DATA_DIR, "Smishing", "Dataset_10191.csv")
 PHISHFUZZER_LABEL_MAP = {
     "Phishing": "phishing",
     "Valid": "valid",
-    # "Spam" is intentionally excluded
 }
 
 SMISHING_LABEL_MAP = {
     "smishing": "smishing",
     "ham": "valid",
-    # "spam" is intentionally excluded
 }
+
+# Spam exclusion (deliberate design decision, agreed with the thesis supervisor).
+# Records with these raw labels are removed before deduplication and sampling,
+# and the number removed is reported per source. Any other unmapped label is
+# dropped too, but counted separately as "unrecognized label".
+PHISHFUZZER_EXCLUDED_TYPES = ("Spam",)
+SMISHING_EXCLUDED_LABELS = ("spam",)
+SPAM_EXCLUSION_RATIONALE = (
+    "The task is threat detection: does a message try to deceive the recipient into an action "
+    "that benefits an attacker (phishing/smishing)? Spam is unsolicited but not necessarily "
+    "deceptive, and both datasets label it as a third class whose boundary to phishing and to "
+    "legitimate marketing is dataset-specific. Keeping it would force a choice between counting "
+    "spam as malicious (inflating recall with non-threats) or as valid (penalising models for "
+    "flagging fraud-like spam). Effect on interpretation: the false-positive rate is measured on "
+    "legitimate messages only. In real traffic spam exists, and a deployed filter may flag some "
+    "of it, so the reported FPR is a lower bound on the alarm rate a user would see."
+)
 
 VALID_LABELS = {"phishing", "smishing", "valid"}
 
@@ -54,13 +69,6 @@ VALID_LABELS = {"phishing", "smishing", "valid"}
 MALICIOUS_LABELS = {"phishing", "smishing"}
 SAFE_LABELS = {"valid"}
 BINARY_LABELS = ["malicious", "safe"]
-
-BINARY_LABEL_MAP = {
-    "phishing": "malicious",
-    "smishing": "malicious",
-    "valid": "safe",
-}
-
 
 def to_binary_label(label: str | None) -> str:
     """
@@ -168,9 +176,6 @@ OLLAMA_GENERATE_ENDPOINT = f"{OLLAMA_BASE_URL}/api/generate"
 OLLAMA_TAGS_ENDPOINT = f"{OLLAMA_BASE_URL}/api/tags"
 OLLAMA_SHOW_ENDPOINT = f"{OLLAMA_BASE_URL}/api/show"
 
-# Default models expected to be installed
-DEFAULT_MODELS = ["qwen2.5:1.5b", "llama3.2", "phi3.5"]
-
 # ──────────────────────────────────────────────
 # Prompt variants (controlled prompt-engineering experiment)
 # ──────────────────────────────────────────────
@@ -210,10 +215,27 @@ LEGACY_PROMPT_VARIANT = "legacy"
 # Setting num_gpu = 0 forces CPU execution which is 100% stable and fast for 1.5B-3.8B models.
 DEFAULT_NUM_GPU = 0  # 0 = CPU (Safe & Stable), None = Auto/GPU
 OLLAMA_REQUEST_TIMEOUT = 300  # seconds per request
-# Context window. The few-shot prompt is ~850 tokens and a message is cut to
-# 1,500 characters, so 4096 leaves headroom without truncation. A larger window
-# costs KV-cache memory (RAM/VRAM) for every loaded model.
+# Context window (tokens). It holds the prompt AND the generated output.
+# A larger window costs KV-cache memory (RAM/VRAM) for every loaded model, which
+# matters for the 8 GB constraint profile, so it stays at 4096. The message length
+# limit that keeps every prompt inside this window is derived at the end of this
+# file (MESSAGE_MAX_CHARS).
 OLLAMA_NUM_CTX = 4096
+# Output token cap assumed by the context budget. It must be >= every num_predict
+# actually sent (currently max 160, fewshotcot); Phase 5b measures real CoT
+# output lengths and sets the cap from them.
+OLLAMA_NUM_PREDICT_CAP = 256
+# Share of num_ctx kept free as a safety margin for the token estimate.
+CONTEXT_MARGIN_FRACTION = 0.10
+# Conservative characters-per-token estimate used for the budget, from a
+# measurement on all five installed tokenizers (2026-11-14, fewshotcot prompt,
+# Ollama prompt_eval_count). Prose-heavy email: 3.7-4.4 chars/token. The most
+# link-dense email (seed:2327, 35 URLs): 2.5-3.5 at full length, and denser
+# still once its body is cut (the URL share grows): 2.47 on phi3.5 with a
+# 4,289-char message. 3.0 overflowed num_ctx on phi3.5 (4,046 + 256 tokens);
+# 2.5 fitted but missed the 10% margin by 36 tokens; 2.4 meets it (verified).
+# Checked per request against prompt_eval_count (Phase 5b).
+CHARS_PER_TOKEN_ESTIMATE = 2.4
 OLLAMA_TEMPERATURE = 0.0  # deterministic output for evaluation
 OLLAMA_TOP_P = 1.0
 # Default generation budget (that of the active prompt variant). Each variant
@@ -223,13 +245,29 @@ OLLAMA_NUM_PREDICT = PROMPT_VARIANTS[ACTIVE_PROMPT_VARIANT]["num_predict"]
 # ──────────────────────────────────────────────
 # Sample-size presets
 # ──────────────────────────────────────────────
-SAMPLE_SIZES = {
-    "Tiny (50)": 50,
-    "Small (100)": 100,
-    "Medium (250)": 250,
-    "Large (500)": 500,
-    "Full dataset": None,  # None => use all records
-}
+# Sample size = records per run (one model x one prompt variant x one set of
+# inference options). Sizes below 500 are for testing and the pilot only.
+SAMPLE_SIZE_PRESETS = [50, 100, 250, 500, 1000]
+DEFAULT_SAMPLE_SIZE = 1000
+MIN_SAMPLE_SIZE = 20
+SMOKE_TEST_SIZES = {50, 100}  # labelled "smoke test, not for results" in the UI
+RESULTS_MIN_SAMPLE_SIZE = 500  # below this: testing / pilot only
+
+# Balanced sampling cells (channel, label) in the fixed largest-remainder order:
+# when the sample size is not divisible by the number of cells, the extra records
+# go to the cells in this order. Alternating threat / valid keeps the two classes
+# within one record of each other (n=50 -> 13/13/12/12 -> 25 malicious / 25 safe).
+SAMPLING_CELLS = [
+    ("email", "phishing"),
+    ("email", "valid"),
+    ("sms", "smishing"),
+    ("sms", "valid"),
+]
+
+# Version of the preprocessing pipeline (loading, cleaning, truncation,
+# deduplication, sampling). Stored in every run and part of the dataset cache key,
+# so a change to preprocessing never reuses a stale cached dataset.
+PREPROCESSING_VERSION = "3"
 
 # Seed for the stratified (source x label) subsample, so every model and
 # prompt variant is evaluated on exactly the same records.
@@ -282,13 +320,13 @@ FEW_SHOT_EXAMPLES = [
     },
     {
         "channel": "email",
-        "text": "Subject: Your October statement is ready\n\nHi Anna, your statement for the account ending 4417 is now available. You can view it in the mobile app or by logging in on our website as usual. We will never ask for your password by email.",
+        "text": "From: Northbank <statements@northbank.co.uk>\nSubject: Your October statement is ready\nLinks: none\n\nHi Anna, your statement for the account ending 4417 is now available. You can view it in the mobile app or by logging in on our website as usual. We will never ask for your password by email.",
         "label": "valid",
         "reasoning": "Informational account notice; no link to a login form and no request for data or money.",
     },
     {
         "channel": "email",
-        "text": "Subject: Mailbox storage full - action required\n\nDear user, your mailbox has exceeded its quota and will be deactivated in 12 hours. Verify your account here to keep receiving messages: http://mail-verify-portal.top/login",
+        "text": "From: Mail Administrator <admin@mail-verify-portal.top>\nSubject: Mailbox storage full - action required\nLinks: http://mail-verify-portal.top/login\n\nDear user, your mailbox has exceeded its quota and will be deactivated in 12 hours. Verify your account here to keep receiving messages: http://mail-verify-portal.top/login",
         "label": "malicious",
         "reasoning": "Threat of deactivation and a credential login link on an unrelated domain.",
     },
@@ -300,7 +338,7 @@ FEW_SHOT_EXAMPLES = [
     },
     {
         "channel": "email",
-        "text": "Subject: Quick favour\n\nAre you at your desk? I need you to buy four 100 USD Apple gift cards for a client today and email me the codes. I'm in meetings all day, so reply only by email. Mark, CEO",
+        "text": "From: Mark Collins <mark.collins.ceo@gmail.com>\nSubject: Quick favour\nLinks: none\n\nAre you at your desk? I need you to buy four 100 USD Apple gift cards for a client today and email me the codes. I'm in meetings all day, so reply only by email. Mark, CEO",
         "label": "malicious",
         "reasoning": "Impersonated executive asks for gift card codes under time pressure, a classic payment scam.",
     },
@@ -373,3 +411,42 @@ CLASSIFICATION_PROMPT = (
     .replace("}", "}}")
     .replace(_PROMPT_PLACEHOLDER, "{message_text}")
 )
+
+
+# ──────────────────────────────────────────────
+# Context budget: maximum message length
+# ──────────────────────────────────────────────
+def _longest_template_chars() -> int:
+    """Length of the longest prompt with an empty message (all variants and channels)."""
+    return max(
+        len(build_classification_prompt("", channel, variant))
+        for variant in PROMPT_VARIANTS
+        for channel in ("email", "sms", None)
+    )
+
+
+PROMPT_TEMPLATE_MAX_CHARS = _longest_template_chars()
+
+# Maximum length (characters) of the message inserted into the prompt: for email
+# the From / Subject / Links header plus the body, for SMS the text. Budget:
+#   tokens(template + message) + num_predict <= num_ctx * (1 - margin)
+#   tokens(x) ~= chars(x) / CHARS_PER_TOKEN_ESTIMATE
+# so  message chars <= CPT * (num_ctx * (1 - margin) - num_predict) - template chars.
+# The header is never cut: the body gets MESSAGE_MAX_CHARS - len(header) chars.
+MESSAGE_MAX_CHARS = int(
+    CHARS_PER_TOKEN_ESTIMATE * (OLLAMA_NUM_CTX * (1 - CONTEXT_MARGIN_FRACTION) - OLLAMA_NUM_PREDICT_CAP)
+) - PROMPT_TEMPLATE_MAX_CHARS
+# Appended to a cut body so the model can see that the message continues.
+TRUNCATION_MARKER = " [...]"
+# When a body is cut, links that appear only in the cut-off part are moved into
+# the Links header. The header may grow only while at least this many body
+# characters stay visible (or the whole body, if shorter): the message content
+# matters more than, e.g., the 300th link of a newsletter. Links that do not fit
+# are counted as lost (body_urls_lost) in the dataset report.
+LINKS_MIN_BODY_CHARS = 1000
+# Moved links take at most this many characters per email. Measured 2026-11-14:
+# newsletter tracking URLs tokenize at ~1.2 chars/token on phi3.5, so without a
+# cap a 2.8k-char moved-link header pushed seed:2969 to 4,047 tokens (prompt +
+# output), past the 10% margin. Phishing emails carry few links; the cap only
+# bites on link-heavy newsletters, and what does not fit is counted as lost.
+LINKS_MOVED_MAX_CHARS = 1000

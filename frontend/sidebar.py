@@ -13,13 +13,27 @@ import streamlit as st
 from backend.data_loader import DATASET_CHOICES
 from backend.evaluator import check_ollama_connection, list_available_models
 from backend.hardware import resolve_num_gpu
-from config import ACTIVE_PROMPT_VARIANT, PROMPT_VARIANTS, SAMPLE_SIZES, to_binary_label
+from backend.sampling import sample_size_purpose
+from config import (
+    ACTIVE_PROMPT_VARIANT,
+    DEFAULT_SAMPLE_SIZE,
+    MIN_SAMPLE_SIZE,
+    PROMPT_VARIANTS,
+    SAMPLE_SIZE_PRESETS,
+    to_binary_label,
+)
 from ui.components import esc, note
 from ui.theme import INK
 
 # Session key holding the sidebar placeholder for the dataset summary line.
 # It is UI-only: the placeholder is recreated on every script run.
 _DATASET_SLOT_KEY = "_ui_sidebar_dataset_slot"
+
+_SIZE_LABELS = {50: "50 · smoke test, not for results", 100: "100 · smoke test, not for results"}
+_PURPOSE_NOTES = {
+    "smoke": "Smoke test, not for results.",
+    "pilot": "Testing and pilot only; thesis results use 500 or more records.",
+}
 
 
 def render_sidebar() -> tuple:
@@ -88,13 +102,35 @@ def render_sidebar() -> tuple:
             )
             dataset_choice = DATASET_CHOICES[dataset_label]
 
-            sample_label = st.selectbox(
+            size_options = [*SAMPLE_SIZE_PRESETS, "custom"]
+            sample_choice = st.selectbox(
                 "sample size",
-                options=list(SAMPLE_SIZES.keys()),
-                index=1,  # Small (100) default
-                help="Select subsample size for testing and latency measurement",
+                options=size_options,
+                index=size_options.index(DEFAULT_SAMPLE_SIZE),
+                format_func=lambda v: _SIZE_LABELS.get(v, str(v)),
+                help=(
+                    "Records per run, balanced over phishing email / valid email / "
+                    "smishing SMS / valid SMS with a fixed seed. Sizes below 500 are for "
+                    "testing and the pilot only."
+                ),
             )
-            sample_size = SAMPLE_SIZES[sample_label]
+            if sample_choice == "custom":
+                sample_size = int(
+                    st.number_input(
+                        "custom sample size",
+                        min_value=MIN_SAMPLE_SIZE,
+                        value=DEFAULT_SAMPLE_SIZE,
+                        step=1,
+                    )
+                )
+            else:
+                sample_size = int(sample_choice)
+            purpose = sample_size_purpose(sample_size)
+            if purpose != "results":
+                st.markdown(
+                    f'<p class="mp-sidebar-line-sans">{esc(_PURPOSE_NOTES[purpose])}</p>',
+                    unsafe_allow_html=True,
+                )
             # Filled by render_sidebar_dataset_summary() once the sample is loaded
             st.session_state[_DATASET_SLOT_KEY] = st.empty()
 

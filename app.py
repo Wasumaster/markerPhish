@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import streamlit as st
 
-from backend.data_loader import load_unified_dataset, stratified_sample
+from backend.data_loader import load_dataset_with_report
+from backend.sampling import balanced_sample
 from backend.hardware import scan_hardware
 from backend.utils import (
     list_saved_result_files,
@@ -27,6 +28,7 @@ from frontend import (
     render_single_run_view,
 )
 from frontend.sidebar import render_sidebar_dataset_summary
+from config import PREPROCESSING_VERSION
 from ui.theme import inject_css
 
 # ──────────────────────────────────────────────
@@ -57,6 +59,8 @@ def init_session() -> None:
         "hardware_profile": None,
         "selected_result_file": None,
         "loaded_filename": None,
+        "dataset_report": None,
+        "sample_info": None,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -76,6 +80,26 @@ def init_session() -> None:
 
 
 init_session()
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def load_dataset_cached(dataset_choice: str, preprocessing_version: str):
+    """
+    Load the unified dataset and its preprocessing report once per
+    (dataset choice, preprocessing version).
+
+    preprocessing_version is unused in the body; it is part of the cache key, so
+    a change to the preprocessing pipeline never serves a stale dataset.
+    """
+    return load_dataset_with_report(dataset_choice)
+
+
+@st.cache_data(show_spinner=False, max_entries=16)
+def sample_cached(dataset_choice: str, preprocessing_version: str, sample_size: int):
+    """The balanced sample of a dataset choice (deterministic, so safe to cache)."""
+    df, _ = load_dataset_cached(dataset_choice, preprocessing_version)
+    result = balanced_sample(df, sample_size)
+    return result.df, result.info
 
 
 # ──────────────────────────────────────────────
@@ -105,19 +129,20 @@ def main() -> None:
 
     # ────────────── TAB 1: DATASET OVERVIEW ──────────────
     with tab_data:
+        df_sample = None
+        sample_info = None
         with st.spinner("Compiling dataset subset..."):
-            df = load_unified_dataset(dataset_choice)
-            df_sample = stratified_sample(df, sample_size)
-
+            _, dataset_report = load_dataset_cached(dataset_choice, PREPROCESSING_VERSION)
+            try:
+                df_sample, sample_info = sample_cached(dataset_choice, PREPROCESSING_VERSION, sample_size)
+            except ValueError as exc:
+                st.error(f"Cannot draw a balanced sample: {exc}")
             st.session_state["dataset_df"] = df_sample
+            st.session_state["dataset_report"] = dataset_report
+            st.session_state["sample_info"] = sample_info
             render_sidebar_dataset_summary(df_sample)
 
-        render_data_overview(df_sample)
-        if sample_size is not None and sample_size < len(df):
-            st.caption(
-                f"Subsample active: Evaluated sample contains {sample_size:,} records "
-                f"selected via seeded stratified sampling (source x label) from {len(df):,} total messages."
-            )
+        render_data_overview(df_sample, dataset_report=dataset_report, sample_info=sample_info)
 
     # ────────────── TAB 2: RUN EVALUATION ──────────────
     with tab_eval:

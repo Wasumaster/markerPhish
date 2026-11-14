@@ -1,23 +1,22 @@
-# MarkerPhish — Dependencies
-# Platform for evaluating LLMs in phishing & smishing detection
+# MarkerPhish — runtime dependencies
+# Exact versions = the environment the thesis results were produced with
+# (Python 3.13.3, Windows 11). Upgrade deliberately, never implicitly.
+# Streamlit must be >= 1.66: the UI uses width="stretch", type="tertiary",
+# vertical_alignment and 1.66 DOM selectors in ui/theme.py.
 
 # Core
-streamlit>=1.38.0
-pandas>=2.0.0
-numpy>=1.24.0
+streamlit==1.66.1
+pandas==3.1.1
+numpy==2.5.4
 
-# ML Metrics
-scikit-learn>=1.3.0
+# ML metrics
+scikit-learn==1.9.1
 
 # Visualization
-plotly>=5.18.0
-matplotlib>=3.7.0
-seaborn>=0.13.0
+plotly==7.1.0
 
 # HTTP / Ollama API
-requests>=2.31.0
+requests==2.34.2
 
 # Resource monitoring
-psutil>=5.9.0
-# gputil is omitted: incompatible with Python 3.12+ (missing distutils) and not imported in codebase
-
+psutil==7.2.2

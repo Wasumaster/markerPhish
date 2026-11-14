@@ -166,12 +166,12 @@ markerPhish/
 
 ## Prerequisites & Installation
 
-> **In short:** You need Python 3.10+, a running Ollama server, and the three default models downloaded.
+> **In short:** You need Python 3.13, a running Ollama server, and at least one model downloaded.
 
 | Requirement | Specification |
 |-------------|---------------|
 | **Operating System** | Windows 10/11, Linux, or macOS |
-| **Python** | 3.10+ |
+| **Python** | 3.13 (results produced with 3.13.3; the code uses `X | None` types, so 3.10 is the absolute minimum, but only 3.13 is tested) |
 | **Ollama** | Local daemon running (`ollama serve`) |
 | **Default Models** | `qwen2.5:1.5b`, `llama3.2:latest`, `phi3.5:latest` |
 | **Compute Device** | Multi-core CPU or NVIDIA CUDA GPU |
@@ -187,8 +187,9 @@ cd markerPhish
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 
-# 3. Install dependencies
+# 3. Install dependencies (exact versions; requirements-dev.txt adds pytest)
 pip install -r requirements.txt
+pip install -r requirements-dev.txt   # optional: to run the tests (python -m pytest)
 
 # 4. Pull required Ollama models
 ollama pull qwen2.5:1.5b

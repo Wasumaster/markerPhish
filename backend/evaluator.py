@@ -57,6 +57,8 @@ class InferenceResult:
     true_binary: str = ""
     predicted_binary: str = ""
     channel: str = ""
+    source_id: str = ""
+    group_id: str = ""
 
 
 @dataclass
@@ -88,28 +90,6 @@ class EvaluationRun:
         if self.end_time:
             return self.end_time - self.start_time
         return time.time() - self.start_time
-
-    def to_dataframe(self) -> pd.DataFrame:
-        """Convert results list to a DataFrame for analysis."""
-        if not self.results:
-            return pd.DataFrame()
-        return pd.DataFrame(
-            [
-                {
-                    "id": r.record_id,
-                    "channel": r.channel,
-                    "true_channel": r.true_label,
-                    "predicted_channel": r.predicted_label,
-                    "true_binary": r.true_binary,
-                    "predicted_binary": r.predicted_binary,
-                    "is_binary_correct": r.is_binary_correct,
-                    "is_channel_correct": r.true_label == r.predicted_label,
-                    "latency_s": round(r.latency_seconds, 4),
-                    "raw_response": r.raw_response,
-                }
-                for r in self.results
-            ]
-        )
 
 
 # ──────────────────────────────────────────────
@@ -146,6 +126,23 @@ def list_available_models() -> list[dict]:
     except Exception as e:
         logger.error("Failed to list Ollama models: %s", e)
         return []
+
+
+def find_model_size(models: list[dict], model_name: str) -> int:
+    """
+    Size in bytes of an installed model, matched by exact name.
+
+    Ollama lists untagged models as "<name>:latest", so "llama3.2" also matches
+    "llama3.2:latest". A prefix match is never used: "qwen2.5" must not pick up
+    "qwen2.5:7b" when "qwen2.5:1.5b" is meant. Returns 0 when there is no match.
+    """
+    wanted = {model_name}
+    if ":" not in model_name:
+        wanted.add(model_name + ":latest")
+    for m in models:
+        if m.get("name") in wanted:
+            return int(m.get("size") or 0)
+    return 0
 
 
 def get_model_info(model_name: str) -> dict:
@@ -500,10 +497,7 @@ def run_evaluation(
 
     # Fetch model size
     models = list_available_models()
-    for m in models:
-        if m["name"] == model_name or m["name"].startswith(model_name):
-            run.model_size_bytes = m["size"]
-            break
+    run.model_size_bytes = find_model_size(models, model_name)
 
     logger.info(
         "Starting evaluation: model=%s, records=%d, num_gpu=%s, prompt_variant=%s",
@@ -544,6 +538,8 @@ def run_evaluation(
             true_binary=to_binary_label(true_label),
             predicted_binary=to_binary_label(predicted),
             channel=channel,
+            source_id=str(row["source_id"]) if "source_id" in df.columns else "",
+            group_id=str(row["group_id"]) if "group_id" in df.columns else "",
         )
 
         run.results.append(result)

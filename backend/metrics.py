@@ -352,6 +352,8 @@ def build_full_report(
         "raw_predictions": [
             {
                 "id": r.record_id,
+                "source_id": getattr(r, "source_id", ""),
+                "group_id": getattr(r, "group_id", ""),
                 "channel": getattr(r, "channel", ""),
                 "true": r.true_label,
                 "predicted": r.predicted_label,

@@ -41,6 +41,15 @@ from ui.components import (
 from ui.theme import CLASS_COLORS, FONT_MONO, INK, SURFACE
 
 
+# Session-state key of the run multiselect.
+_SELECTION_KEY = "compare_selected_files"
+
+
+def select_all_runs(available_files: list[str]) -> None:
+    """Button callback: select every available run in the Compare multiselect."""
+    st.session_state[_SELECTION_KEY] = list(available_files)
+
+
 def _extract_report_summary(filename: str, report: dict) -> dict:
     """Extract standard summary metrics from an evaluation report."""
     report = ensure_report_compatibility(report)
@@ -170,22 +179,35 @@ def render_multi_comparison_view() -> None:
     # ──────────────────────────────────────────────
     # 1. Run selection
     # ──────────────────────────────────────────────
+    # The multiselect owns its state under _SELECTION_KEY. Initialise it once, and
+    # drop files that no longer exist (a widget value outside its options raises).
+    if _SELECTION_KEY not in st.session_state:
+        st.session_state[_SELECTION_KEY] = list(available_files)
+    else:
+        st.session_state[_SELECTION_KEY] = [
+            f for f in st.session_state[_SELECTION_KEY] if f in available_files
+        ]
+
     ctrl_col1, ctrl_col2 = st.columns([6, 1], vertical_alignment="bottom")
     with ctrl_col1:
-        # Default to all available benchmark files (or the latest 6+ if many exist)
-        default_selection = available_files[: max(6, len(available_files))]
         selected_files = st.multiselect(
             "runs",
             options=available_files,
-            default=default_selection,
+            key=_SELECTION_KEY,
             format_func=lambda f: chip_labels.get(f, f),
             help="Select 2 or more evaluation reports to generate comparative analytics. Supports 6+ runs concurrently.",
         )
 
     with ctrl_col2:
-        if st.button("select all", type="tertiary"):
-            st.session_state["multi_selected_files"] = available_files
-            st.rerun()
+        # on_click runs before the next script run, i.e. before the multiselect is
+        # instantiated again, which is the only point where its key may be written.
+        # Streamlit reruns the script after the callback.
+        st.button(
+            "select all",
+            type="tertiary",
+            on_click=select_all_runs,
+            args=(available_files,),
+        )
 
     if not selected_files or len(selected_files) < 1:
         st.warning("Select at least one benchmark report to inspect metrics.")

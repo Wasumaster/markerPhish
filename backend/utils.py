@@ -93,7 +93,9 @@ def clean_text(text: str) -> str:
         1. Unicode normalisation (NFKD)
         2. Remove unprintable chars
         3. Collapse excessive whitespace / newlines
-        4. Truncate to a safe length
+
+    It never truncates: the length limit is applied to the message body only,
+    by backend.preprocessing, so headers and links are never cut.
     """
     if not isinstance(text, str):
         return ""
@@ -104,10 +106,7 @@ def clean_text(text: str) -> str:
     text = re.sub(r"[^\x20-\x7E\n\t]", " ", text)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
-    text = text.strip()
-    if len(text) > 1500:
-        text = text[:1500] + "..."
-    return text
+    return text.strip()
 
 
 # ──────────────────────────────────────────────
@@ -205,14 +204,6 @@ def format_result_label(filename: str) -> str:
     return filename
 
 
-def load_latest_results(model_name: str | None = None) -> dict | None:
-    """Load the most recent result file, optionally filtered by model name."""
-    files = list_saved_result_files(model_name=model_name)
-    if not files:
-        return None
-    return load_result_by_filename(files[0])
-
-
 # ──────────────────────────────────────────────
 # Report backward compatibility
 # ──────────────────────────────────────────────
@@ -230,10 +221,29 @@ def report_cold_start(report: dict) -> float | None:
         return None
 
 
+# Marker for a stored prediction whose ground-truth label is missing or unreadable.
+UNKNOWN_GROUND_TRUTH = "unknown_ground_truth"
+
+
+def _stored_true_label(record: dict) -> str:
+    """Ground-truth label of a stored prediction, or UNKNOWN_GROUND_TRUTH if absent/invalid."""
+    from config import VALID_LABELS
+
+    value = record.get("true", record.get("true_channel"))
+    if isinstance(value, str) and value.strip().lower() in VALID_LABELS:
+        return value.strip().lower()
+    return UNKNOWN_GROUND_TRUTH
+
+
 def ensure_report_compatibility(report: dict) -> dict:
     """
     Ensure saved results from older schema versions have binary metrics populated.
-    Re-derives binary confusion matrix and distributions from raw predictions if missing.
+
+    Re-derives the binary confusion matrix and distributions from raw predictions
+    if missing. A record whose ground-truth label is missing or not a known label
+    is never assumed to be "valid": it is marked UNKNOWN_GROUND_TRUTH in memory,
+    excluded from the metrics and counted in classification_metrics
+    ["unknown_ground_truth"]. The file on disk is not modified.
     """
     from config import to_binary_label
 
@@ -243,9 +253,18 @@ def ensure_report_compatibility(report: dict) -> dict:
         from .metrics import compute_classification_metrics
 
         raw = report["raw_predictions"]
-        y_true = [r.get("true", r.get("true_channel", "valid")) for r in raw]
-        y_pred = [r.get("predicted", r.get("predicted_channel", "unknown")) for r in raw]
+        y_true, y_pred = [], []
+        unknown_truth = 0
+        for r in raw:
+            true_label = _stored_true_label(r)
+            if true_label == UNKNOWN_GROUND_TRUTH:
+                r["true"] = UNKNOWN_GROUND_TRUTH
+                unknown_truth += 1
+                continue
+            y_true.append(true_label)
+            y_pred.append(r.get("predicted", r.get("predicted_channel", "unknown")) or "unknown")
         recomputed = compute_classification_metrics(y_true, y_pred)
+        recomputed["unknown_ground_truth"] = unknown_truth
         report["classification_metrics"] = recomputed
 
         dist = report.get("data_distribution", {})

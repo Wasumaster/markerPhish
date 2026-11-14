@@ -1,0 +1,4 @@
+# MarkerPhish — development / test dependencies (not needed to run the app)
+-r requirements.txt
+pytest==9.2.0
+pytest-cov==7.1.0
