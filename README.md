@@ -219,6 +219,29 @@ streamlit run app.py
 
 Once running, open the application in your browser at `http://localhost:8501`.
 
+### Option C: Batch mode (headless, many runs)
+
+An experiment file (YAML, format in `backend/experiment.py` and OVERVIEW.md) describes a matrix of
+models × prompt variants × options × repetitions. Run it without the UI:
+
+```powershell
+python -m backend.batch path\to\experiment.yaml --dry-run   # plan and time estimate, sends nothing
+python -m backend.batch path\to\experiment.yaml             # run; restart the same command to resume
+```
+
+One run JSON per cell lands in `results/` (the same files the UI reads); the batch summary and log are in
+`results/batches/`. Finished cells are skipped on restart, a failed cell is logged and the batch continues.
+
+**Running overnight on Windows**
+
+- Plug in AC power (the batch warns on battery; CPU clocks drop on battery) and keep the power plan fixed.
+- Prevent sleep while plugged in: `powercfg /change standby-timeout-ac 0` and `powercfg /change hibernate-timeout-ac 0`.
+- If the lid will be closed: `powercfg /setacvalueindex SCHEME_CURRENT SUB_BUTTONS LIDACTION 0` then
+  `powercfg /setactive SCHEME_CURRENT` (lid close = do nothing on AC). Otherwise keep the lid open.
+- Close other heavy programs; the app itself need not run. Pause OneDrive sync, or move results out of the
+  synced folder with the environment variable `MARKERPHISH_RESULTS_DIR`.
+- Start the batch from a terminal that stays open (e.g. `start powershell -NoExit -Command "python -m backend.batch ..."`).
+
 ---
 
 ## Hardware Execution Modes

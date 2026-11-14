@@ -14,8 +14,8 @@ If a session restarts, resume from the first unchecked phase below.
 | 4. Resource profiling | done 2026-11-14 (committed da6ec73) |
 | 5. Metrics | done 2026-11-14 (autonomous, committed) |
 | 5b. Inference options | done 2026-11-14 (autonomous, committed) |
-| 6. Batch mode | in progress (autonomous; pilot NOT run, session rule 2) |
-| 7. Optimum analysis | not started |
+| 6. Batch mode | done 2026-11-14 (autonomous, committed); pilot NOT run (session rule 2) |
+| 7. Optimum analysis | in progress (autonomous) |
 | 8. Non-LLM baseline | not started |
 | 9. UI | not started |
 | 10. Documentation | not started |
@@ -56,6 +56,15 @@ D15. Truncated output. What: done_reason == "length" -> truncated_output = true,
 D16. Possibly cut input. What: input_possibly_truncated = prompt_eval_count + num_predict >= num_ctx (prompt_eval_count counts cached tokens too, see D2); flagged and counted (timing.input_possibly_truncated), the prediction is kept. Why: it is still the model's answer on what it saw; the count makes it visible. Alternative: treat as unknown. Revert: evaluator.classify_message.
 D17. num_thread / num_batch actually used. What: read from the runner command line (-t / -b) after the first request; Ollama shows -t only when num_thread is set, so with Ollama's default num_thread is null; num_batch is shown (512). Stored in manifest.inference.ollama_resolved.
 D18. Removed dead config: OLLAMA_NUM_PREDICT, CLASSIFICATION_PROMPT (unused since Phase 1). inference_config.num_predict is now null (see manifest.inference.options).
+D19. No experiment files shipped. What: experiments/pilot.yaml, main.yaml and latency_variance.yaml from the original Phase 6 spec are not created; the format is documented instead (backend/experiment.py docstring, README "Batch mode", OVERVIEW in Phase 10), and `models: installed` selects every model Ollama lists. Why: session rule 7 (no pilot files / commands prepared) and rule 9 (no model names). Revert: write the YAML files (format in backend/experiment.py).
+D20. Smoke batch replaced. What: tests/test_batch.py runs the full batch path against the fake Ollama (4 cells, resume without re-running, one failed cell, battery warning, CLI exit codes); the real check was `python -m backend.batch <tmp>.yaml --dry-run` (5 installed models x 3 variants x 250 = 15 cells, rough estimate 5 h 12 m, 0 inference requests, nothing loaded, nothing written). Why: session rule 2.
+D21. Batch ids. What: batch_id = hash of the definition with the resolved model list; cell_id = hash of dataset, size, seed, start mode, model, variant, options, repetition. A cell counts as done when a saved run carries the same batch_id + cell_id and has sample_size predictions. Consequence: changing the file (or the installed models with `models: installed`) starts a new batch. Revert: experiment.batch_id / expand_cells.
+D22. Batch files. What: summary results/batches/batch_<id>.json (rewritten after every cell; statuses pending / running / complete / complete (earlier) / failed / interrupted; power before and after each cell) and batch_<id>.log; run files stay in results/ (the UI lists only top-level files, so summaries never appear as runs). Each batch run gets a "batch" block (batch_id, cell_id, cell_index, repetition, experiment, constraint_profiles).
+D23. Unknown models fail fast. What: a model in `models` that Ollama does not list stops the batch before it starts (ExperimentError, exit code 2) instead of failing every cell later. Runtime failures (Ollama error, invalid options for one model) fail only their cell. Revert: experiment.resolve_models.
+D24. Battery: warning only. What: the CLI prints a warning when on battery and continues (an overnight run cannot wait for a confirmation). Revert: batch.run_batch.
+D25. Results directory override. What: MARKERPHISH_RESULTS_DIR (env) moves results/ (accepted in the plan for OneDrive). save_results never overwrites: same-second names are moved forward by one second. Revert: config.RESULTS_DIR, utils.save_results.
+D26. Time estimate. What: mean latency of earlier protocol-2, non-inflated runs of the same model + variant x sample size; otherwise the slowest measured variant of the same model; otherwise 5 s per record ("rough"). Revert: experiment.estimate_seconds.
+D27. DEV_BUILD = False at the end of Phase 6 (as specified): runs from now on are protocol 2 and not dev, also those the user makes in the UI.
 D11. Optional items skipped: base-rate precision, cost-weighted error, logprob scores / ROC / PR (session rule 1).
 
 ## Checklist
@@ -137,13 +146,14 @@ D11. Optional items skipped: base-rate precision, cost-weighted error, logprob s
 - [x] per-model overrides + optional calibration CLI (session rule 9)
 
 ### Phase 6: batch mode
-- [ ] experiment file format + experiments/pilot.yaml, main.yaml, latency_variance.yaml
-- [ ] `python -m backend.batch`: estimate, resumable, failure-tolerant, log, unload between cells
-- [ ] README overnight-on-Windows notes
-- [ ] (optional) Batch section in Run tab
-- [ ] protocol_version = 2, dev flag off
-- [ ] 50-record smoke batch, then delete its runs
-- [ ] STOP: tell the user the pilot can start
+- [x] experiment file format (YAML) — documented in backend/experiment.py, README, OVERVIEW (Phase 10)
+- [ ] experiments/pilot.yaml, main.yaml, latency_variance.yaml — NOT created (session rule 7: no pilot files; rule 9: no model names), see D19
+- [x] `python -m backend.batch`: estimate, resumable, failure-tolerant, log, unload between cells, power per cell, --dry-run
+- [x] README overnight-on-Windows notes
+- [ ] (optional) Batch section in Run tab — SKIPPED (session rule 1)
+- [x] protocol_version = 2, DEV_BUILD = False
+- [ ] 50-record smoke batch — NOT run (session rule 2); replaced by mocked end-to-end batch tests + a real --dry-run (0 inference requests), see D20
+- [x] STOP for the pilot — superseded by the autonomous session rules (no pilot is run)
 
 ### Phases 7-10, final report
 See `docs/REFACTOR_TASK.md`; items are added here when the phase starts.
@@ -311,4 +321,11 @@ Done:
 - Tests: tests/test_options.py (28: validation, denser calibrated tokenizer, model without metadata, overrides file, calibration with a fake denser tokenizer, truncated output, cut input, refusal before any request) + 3 AppTests incl. an end-to-end UI run (model select -> 50 records -> Run -> report saved with 13/13/12/12 cells). 241 tests pass.
 - Real checks (<= 5 requests each, nothing left loaded): fewshotcot output length on all 5 installed models (5 requests); options + truncation on the smallest model (2 requests: num_predict 8 -> done_reason "length" -> truncated_output, unknown; num_thread 4 -> runner "-t 4"); longest prompt of the real 1000 sample = 8,223 chars, ~3,427 est. tokens + 256 <= 3,686 (fits without calibration).
 Open: the output cap is provisional (D12); the user may set a per-model num_predict in model_overrides.json.
+
+### Phase 6 (2026-11-14, autonomous)
+Done:
+- `backend/experiment.py`: YAML format (models list or `installed`, prompt_variants list or `all`, dataset, sample_size, seed, repetitions, start_mode, unload_other_models, constraint_profiles, options with list values expanding the matrix), validation with clear messages, resolve_models (x == x:latest), option_grid, expand_cells, batch_id / cell_id, estimate_seconds, measured_seconds_per_record.
+- `backend/batch.py`: CLI `python -m backend.batch <file> [--dry-run]` (plan + estimate + battery warning; resumable; failure-tolerant; console + log file progress with ETA; per-cell power; summary JSON).
+- config: DEV_BUILD = False; MARKERPHISH_RESULTS_DIR. utils.save_results unique names. requirements: PyYAML==6.0.3. README: batch mode + overnight on Windows.
+- Tests: tests/test_batch.py (25). 267 tests pass. Live AppTest: 4 tabs, no errors, nothing loaded. Real check: dry run only (D20).
 

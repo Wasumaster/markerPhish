@@ -190,3 +190,9 @@ def test_model_without_metadata_gives_nulls_not_errors(fake_ollama):
     for key in ("family", "parameter_size", "parameter_count", "quantization", "context_length", "digest"):
         assert d[key] is None, key
     assert mf.model_details("not-installed:x")["size_bytes"] is None
+
+
+def test_runs_made_from_now_on_are_protocol_2_and_not_dev():
+    import config
+
+    assert config.PROTOCOL_VERSION == 2 and config.DEV_BUILD is False

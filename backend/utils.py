@@ -12,7 +12,7 @@ import logging
 import os
 import re
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from config import LEGACY_PROMPT_VARIANT, PROMPT_VARIANTS, RESULTS_DIR
 
@@ -131,12 +131,14 @@ def save_results(results: dict, model_name: str, prompt_variant: str | None = No
     ensure_dir(RESULTS_DIR)
     safe_name = model_name.replace(":", "_").replace("/", "_")
     variant = prompt_variant or results.get("prompt_variant")
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    if variant:
-        filename = f"eval_{safe_name}_{variant}_{timestamp}.json"
-    else:
-        filename = f"eval_{safe_name}_{timestamp}.json"
-    filepath = os.path.join(RESULTS_DIR, filename)
+    moment = datetime.now()
+    while True:  # two runs saved within one second must not overwrite each other
+        timestamp = moment.strftime("%Y%m%d_%H%M%S")
+        filename = f"eval_{safe_name}_{variant}_{timestamp}.json" if variant else f"eval_{safe_name}_{timestamp}.json"
+        filepath = os.path.join(RESULTS_DIR, filename)
+        if not os.path.exists(filepath):
+            break
+        moment += timedelta(seconds=1)
 
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False, default=str)

@@ -12,7 +12,9 @@ import os
 # ──────────────────────────────────────────────
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(PROJECT_ROOT, "Data")
-RESULTS_DIR = os.path.join(PROJECT_ROOT, "results")
+# Saved runs. MARKERPHISH_RESULTS_DIR moves them elsewhere, e.g. outside a
+# OneDrive-synced folder for long batches (sync activity costs CPU and can lock files).
+RESULTS_DIR = os.environ.get("MARKERPHISH_RESULTS_DIR") or os.path.join(PROJECT_ROOT, "results")
 # Optional per-model settings (chars per token from calibration, num_predict).
 MODEL_OVERRIDES_PATH = os.path.join(PROJECT_ROOT, "model_overrides.json")
 
@@ -318,9 +320,10 @@ SAMPLING_CELLS = [
 # Protocol of the runs this code produces. Legacy runs (no manifest) are
 # protocol 1, inferred on load. DEV_BUILD marks runs made while the audit
 # refactor (Phases 1-6) is in progress: they are excluded from Compare by default
-# and never enter the recommendation. Set to False when Phase 6 is complete.
+# and never enter the recommendation. Set to False on 2026-11-14 when Phase 6
+# was completed: runs made from then on are protocol 2 and not dev.
 PROTOCOL_VERSION = 2
-DEV_BUILD = True
+DEV_BUILD = False
 
 # Version of the preprocessing pipeline (loading, cleaning, truncation,
 # deduplication, sampling). Stored in every run and part of the dataset cache key,

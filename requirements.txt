@@ -17,6 +17,9 @@ scipy==1.18.1
 # Visualization
 plotly==7.1.0
 
+# Experiment files (batch mode)
+PyYAML==6.0.3
+
 # HTTP / Ollama API
 requests==2.34.2
 
