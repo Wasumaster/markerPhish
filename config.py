@@ -237,6 +237,9 @@ CONTEXT_MARGIN_FRACTION = 0.10
 # Checked per request against prompt_eval_count (Phase 5b).
 CHARS_PER_TOKEN_ESTIMATE = 2.4
 OLLAMA_TEMPERATURE = 0.0  # deterministic output for evaluation
+# Sampling seed sent to Ollama with every request. At temperature 0 decoding is
+# greedy, so the seed should not matter; it is fixed anyway and recorded.
+OLLAMA_SEED = 42
 OLLAMA_TOP_P = 1.0
 # Default generation budget (that of the active prompt variant). Each variant
 # defines its own num_predict in PROMPT_VARIANTS.
@@ -263,6 +266,13 @@ SAMPLING_CELLS = [
     ("sms", "smishing"),
     ("sms", "valid"),
 ]
+
+# Protocol of the runs this code produces. Legacy runs (no manifest) are
+# protocol 1, inferred on load. DEV_BUILD marks runs made while the audit
+# refactor (Phases 1-6) is in progress: they are excluded from Compare by default
+# and never enter the recommendation. Set to False when Phase 6 is complete.
+PROTOCOL_VERSION = 2
+DEV_BUILD = True
 
 # Version of the preprocessing pipeline (loading, cleaning, truncation,
 # deduplication, sampling). Stored in every run and part of the dataset cache key,

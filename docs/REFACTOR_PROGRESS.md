@@ -10,7 +10,7 @@ If a session restarts, resume from the first unchecked phase below.
 | 0. Plan | approved 2026-11-14 |
 | 1. Bugs, hygiene, tests | done 2026-11-14 |
 | 2. Data preprocessing | done 2026-11-14 (incl. addendum 2a, committed) |
-| 3. Reproducibility manifest | in progress |
+| 3. Reproducibility manifest | done 2026-11-14, awaiting "continue" |
 | 4. Resource profiling | not started |
 | 5. Metrics | not started |
 | 5b. Inference options | not started |
@@ -63,10 +63,11 @@ Rules per phase: run tests, AppTest every tab, update this file, report, wait fo
 - [x] Dataset tab report
 
 ### Phase 3: manifest
-- [ ] manifest block (all fields), git commit + dirty, Ollama version, model details
-- [ ] protocol_version (legacy=1 inferred, dev flag)
-- [ ] Results: Manifest expander + differences vs current
-- [ ] (optional) Reproduce button
+- [x] manifest block (all fields), git commit + dirty, Ollama version, model details
+- [x] power state (AC/battery, plan, mode) — user addition
+- [x] protocol_version (legacy=1 inferred, dev flag)
+- [x] Results: Manifest expander + differences vs current
+- [ ] (optional) Reproduce button — not done, awaits confirmation
 
 ### Phase 4: resource profiling
 - [ ] Ollama process-tree matching
@@ -196,3 +197,23 @@ Context check on phi3.5 (densest tokenizer), fewshotcot, after the addendum:
 
 Open (for the user): accept 8.4% worst-case margin + per-request guard, or lower CHARS_PER_TOKEN_ESTIMATE further (2.3 -> message 3,603 chars, more truncation; still no guarantee).
 Note: for singleton-group cells the 250-record sample is a subset of the 1,000-record sample (cells take a prefix of the same seeded permutation), so pilot records' prompt_eval_count covers a quarter of the main sample.
+
+### Phase 3 (2026-11-14)
+Done:
+- `backend/manifest.py`: `build_manifest` with protocol_version (config.PROTOCOL_VERSION = 2), dev (config.DEV_BUILD = True until Phase 6), preprocessing_version; dataset block (choice, requested/actual size, fallback + reason, seed, group_aware, n_groups, allocation order, per-cell counts, dataset_fingerprint, sampled id/source_id/group_id list); prompt block (variant, template per channel with `{{MESSAGE}}` placeholder, output JSON Schema, prompt_template_hash = SHA-256 of canonical JSON of templates + schema); model (name, tag, digest, size, family, parameter_size/count, quantization, format, context_length, modified_at from /api/tags + /api/show); inference (options exactly as sent incl. seed, endpoint, stream, think, count of requests whose options differed, e.g. GPU->CPU fallback); software (Ollama version, git commit + dirty + changed files, ignoring saved runs under results/; Python; OS); power (on_ac_power, battery_percent, Windows power plan GUID + English name, Windows 11 power mode or null); timestamps (ISO 8601 with offset). All collectors return None instead of raising.
+- `dataset_fingerprint`: SHA-256 over sorted (source_id, text, true_label).
+- `report_protocol_version` (no manifest -> 1), `report_is_dev`, `manifest_differences`, `current_environment`, `manifest_summary`.
+- `backend/run_report.build_run_report`: metrics report + manifest; used by the Run tab (Phase 6 batch will use it too).
+- evaluator: `seed` (config.OLLAMA_SEED = 42) in every request; run records started_at/ended_at, power at start, options sent, request fields.
+- Results tab: collapsed "manifest" expander (summary table, differences from current code commit / dirty flag / model digest / preprocessing version / prompt hash, prompt templates); legacy runs show a protocol-1 note.
+- Tests: `tests/test_manifest.py` (16) + 2 AppTests. 153 tests pass; backend+config coverage 91%.
+- Real check: a 20-record qwen2.5:1.5b zeroshot run through `build_run_report` produced a complete manifest (saved in the scratchpad, not results/; model unloaded). It recorded on_ac_power = false: the laptop was unplugged during the run.
+
+Deviations:
+- The prompt template is stored per channel (email and SMS prompts differ in wording), and the hash also covers the output JSON Schema, since the schema is part of what constrains the model.
+- Saved run files under results/ do not set the dirty flag (results/ is tracked in git, so every new run would otherwise mark the next run dirty).
+- Power state is taken once, at run start. Windows 11 power mode is null on this machine (no overlay value in the registry).
+
+Open issues:
+- (optional) Reproduce button: not built; needs confirmation.
+- hardware_profile is still the session-start scan (audit #23); Phase 4 replaces it with a per-run hardware block.

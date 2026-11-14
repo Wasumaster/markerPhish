@@ -12,7 +12,7 @@ import pandas as pd
 import streamlit as st
 
 from backend.evaluator import run_evaluation
-from backend.metrics import build_full_report
+from backend.run_report import build_run_report
 from backend.utils import logger, save_results
 from config import ACTIVE_PROMPT_VARIANT, PROMPT_VARIANTS
 from ui.components import (
@@ -177,7 +177,14 @@ def _execute_run(
         if hasattr(st.session_state.get("hardware_profile"), "to_dict")
         else st.session_state.get("hardware_profile", {})
     )
-    report = build_full_report(eval_run, hardware_profile=hw_dict, execution_mode=mode_display_name)
+    report = build_run_report(
+        eval_run,
+        df_sample=df_eval,
+        dataset_choice=st.session_state.get("dataset_choice"),
+        sample_info=st.session_state.get("sample_info"),
+        hardware_profile=hw_dict,
+        execution_mode=mode_display_name,
+    )
     st.session_state["report"] = report
 
     filepath = save_results(report, selected_model, prompt_variant=prompt_variant)

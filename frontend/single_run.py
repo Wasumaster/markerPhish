@@ -22,6 +22,7 @@ from backend.utils import (
     report_cold_start,
     report_prompt_variant,
 )
+from backend.manifest import current_environment, manifest_differences, manifest_summary
 from config import LEGACY_PROMPT_VARIANT, is_binary_match
 from ui.components import (
     DASH,
@@ -274,6 +275,8 @@ def render_results(report: dict) -> None:
                 ]
             kv_table(pairs, headers=("component", "value"))
 
+    _render_manifest(report)
+
     with st.expander("detailed inference records (audit log)", expanded=False):
         if raw_preds:
             pred_table = pd.DataFrame(raw_preds)
@@ -286,6 +289,47 @@ def render_results(report: dict) -> None:
 
     with st.expander("full scikit-learn report output", expanded=False):
         st.code(cls.get("classification_report_text", "N/A"), language="text")
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _current_environment_cached(model_name: str, prompt_variant: str, output_schema_json: str) -> dict:
+    """Current code / model / preprocessing state (reads git and Ollama metadata; never loads a model)."""
+    return current_environment(model_name, prompt_variant, json.loads(output_schema_json))
+
+
+def _render_manifest(report: dict) -> None:
+    """Collapsed manifest of the run and its differences from the current environment."""
+    manifest = report.get("manifest")
+    with st.expander("manifest", expanded=False):
+        if not manifest:
+            note(
+                "This run has no manifest: it was produced under the legacy protocol (protocol 1), "
+                "before dataset, sample, prompt, model and software versions were recorded."
+            )
+            return
+        kv_table(manifest_summary(manifest), headers=("field", "value"), max_width="100%")
+
+        prompt = manifest.get("prompt") or {}
+        current = _current_environment_cached(
+            report.get("model_name", ""),
+            prompt.get("prompt_variant") or "",
+            json.dumps(prompt.get("output_schema")),
+        )
+        diffs = manifest_differences(manifest, current)
+        section_label("differences from the current environment")
+        if diffs:
+            data_table(
+                ["field", "this run", "now"],
+                [[field, str(run_value), str(now)] for field, run_value, now in diffs],
+                max_width="100%",
+            )
+        else:
+            note("Code commit, model digest, preprocessing version and prompt template match the current state.")
+
+        templates = prompt.get("templates") or {}
+        for channel, text in templates.items():
+            section_label(f"prompt template · {channel}")
+            st.code(text, language="text")
 
 
 def render_single_run_view() -> None:

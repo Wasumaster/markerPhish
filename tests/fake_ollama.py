@@ -104,7 +104,12 @@ class FakeOllama:
         model = next((m for m in self.models if m["name"] == name), None)
         if model is None:
             return {"error": "model not found"}
-        return {"details": model["details"], "capabilities": self.capabilities, "model_info": {}}
+        family = model["details"]["family"]
+        return {
+            "details": model["details"],
+            "capabilities": self.capabilities,
+            "model_info": {f"{family}.context_length": 32768, "general.parameter_count": 1_543_714_304},
+        }
 
     def _generate(self, body: dict) -> dict:
         prompt = body.get("prompt", "")

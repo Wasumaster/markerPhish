@@ -25,6 +25,7 @@ from config import (
     OLLAMA_GENERATE_ENDPOINT,
     OLLAMA_NUM_CTX,
     OLLAMA_REQUEST_TIMEOUT,
+    OLLAMA_SEED,
     OLLAMA_SHOW_ENDPOINT,
     OLLAMA_TAGS_ENDPOINT,
     OLLAMA_TEMPERATURE,
@@ -37,6 +38,7 @@ from config import (
     is_binary_match,
     to_binary_label,
 )
+from .manifest import now_iso, power_state
 from .utils import logger
 
 
@@ -74,6 +76,14 @@ class EvaluationRun:
     end_time: float = 0.0
     prompt_variant: str = ACTIVE_PROMPT_VARIANT
     cold_start_s: float = 0.0
+    started_at: str = ""  # ISO 8601 with timezone, before the warm-up
+    ended_at: str = ""
+    # Ollama options of the evaluation requests, exactly as sent (first request);
+    # requests that differed (GPU -> CPU fallback) are counted in options_changed.
+    options_sent: dict = field(default_factory=dict)
+    options_changed: int = 0
+    request_fields: dict = field(default_factory=dict)  # format schema, think, stream
+    power_at_start: dict | None = None
 
     @property
     def total_latency(self) -> float:
@@ -197,6 +207,10 @@ def build_output_schema(prompt_variant: str | None = None) -> dict:
     return {"type": "object", "properties": properties, "required": required}
 
 
+def settings_num_predict(variant: str) -> int:
+    return int(get_prompt_variant(variant)["num_predict"])
+
+
 def _build_options(num_gpu: int | None, num_predict: int) -> dict:
     """Ollama generation options shared by warm-up and evaluation requests."""
     options = {
@@ -204,6 +218,7 @@ def _build_options(num_gpu: int | None, num_predict: int) -> dict:
         "top_p": OLLAMA_TOP_P,
         "num_ctx": OLLAMA_NUM_CTX,
         "num_predict": num_predict,
+        "seed": OLLAMA_SEED,
     }
     if num_gpu is not None:
         options["num_gpu"] = num_gpu
@@ -473,6 +488,9 @@ def classify_message(
         "binary_label": binary,
         "channel": channel or "unknown",
         "prompt_variant": variant,
+        # Options as finally sent (a GPU failure retries with num_gpu=0)
+        "options_sent": dict(payload["options"]),
+        "think_sent": "think" in payload,
     }
 
     return predicted, raw_response, latency, metadata
@@ -506,6 +524,14 @@ def run_evaluation(
         num_gpu,
         variant,
     )
+    run.started_at = now_iso()
+    run.power_at_start = power_state()
+    run.request_fields = {
+        "endpoint": "/api/generate",
+        "stream": False,
+        "format": build_output_schema(variant),
+        "think": False if model_supports_thinking(model_name) else None,
+    }
     run.cold_start_s = warm_up_model(model_name, num_gpu)
     logger.info("Model warm-up finished (cold start %.2fs)", run.cold_start_s)
     run.start_time = time.time()
@@ -542,6 +568,13 @@ def run_evaluation(
             group_id=str(row["group_id"]) if "group_id" in df.columns else "",
         )
 
+        sent = meta.get("options_sent")
+        if sent:
+            if not run.options_sent:
+                run.options_sent = sent
+            elif sent != run.options_sent:
+                run.options_changed += 1
+
         run.results.append(result)
         run.completed += 1
         if predicted == "unknown":
@@ -555,6 +588,9 @@ def run_evaluation(
             gc.collect()
 
     run.end_time = time.time()
+    run.ended_at = now_iso()
+    if not run.options_sent:  # every request failed before a response: record what was configured
+        run.options_sent = _build_options(num_gpu, settings_num_predict(variant))
     logger.info(
         "Evaluation complete: %d/%d processed (%.1fs, avg %.2fs/msg, failed=%d)",
         run.completed,

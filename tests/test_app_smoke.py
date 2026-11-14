@@ -61,3 +61,40 @@ def test_failed_run_resets_is_running(app, monkeypatch):
     assert any("simulated failure" in e.value for e in app.error)
     app.run()
     assert not next(b for b in app.button if b.label == "Run evaluation").disabled
+
+
+def test_results_tab_shows_the_manifest_of_a_new_run(fake_ollama, legacy_results_dir, toy_df):
+    import re
+
+    from backend.evaluator import run_evaluation
+    from backend.run_report import build_run_report
+    from backend.sampling import balanced_sample
+    from backend.utils import save_results
+
+    df = toy_df.assign(source_id=[f"t:{i}" for i in toy_df["id"]], group_id=[f"g:{i}" for i in toy_df["id"]])
+    sample = balanced_sample(df, 20)
+    run = run_evaluation("qwen2.5:1.5b", sample.df, num_gpu=0, prompt_variant="zeroshot")
+    report = build_run_report(
+        run, df_sample=sample.df, dataset_choice="seed+sms", sample_info=sample.info,
+        code={"commit": "0" * 40, "dirty": False, "changed_files": []},
+    )
+    path = save_results(report, "qwen2.5:1.5b", prompt_variant="zeroshot")
+    newest = os.path.basename(path)
+    os.utime(path, (4_000_000_000, 4_000_000_000))  # newest file -> selected by default
+
+    at = AppTest.from_file(APP, default_timeout=120)
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert at.session_state["loaded_filename"] == newest
+    results_text = " ".join(re.sub(r"<[^>]+>", " ", m.value) for m in at.tabs[2].markdown)
+    assert "dataset fingerprint" in results_text
+    assert "differences from the current environment" in results_text
+    assert "code_commit" in results_text  # the fake commit differs from HEAD
+    assert any("{{MESSAGE}}" in c.value for c in at.tabs[2].code)
+
+
+def test_results_tab_marks_legacy_runs(app):
+    import re
+
+    text = " ".join(re.sub(r"<[^>]+>", " ", m.value) for m in app.tabs[2].markdown)
+    assert "legacy protocol (protocol 1)" in text

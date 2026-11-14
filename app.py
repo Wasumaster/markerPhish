@@ -61,6 +61,7 @@ def init_session() -> None:
         "loaded_filename": None,
         "dataset_report": None,
         "sample_info": None,
+        "dataset_choice": None,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -140,6 +141,7 @@ def main() -> None:
             st.session_state["dataset_df"] = df_sample
             st.session_state["dataset_report"] = dataset_report
             st.session_state["sample_info"] = sample_info
+            st.session_state["dataset_choice"] = dataset_choice
             render_sidebar_dataset_summary(df_sample)
 
         render_data_overview(df_sample, dataset_report=dataset_report, sample_info=sample_info)
