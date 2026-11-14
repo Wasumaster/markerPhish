@@ -13,8 +13,8 @@ If a session restarts, resume from the first unchecked phase below.
 | 3. Reproducibility manifest | done 2026-11-14 (committed) |
 | 4. Resource profiling | done 2026-11-14 (committed da6ec73) |
 | 5. Metrics | done 2026-11-14 (autonomous, committed) |
-| 5b. Inference options | in progress (autonomous) |
-| 6. Batch mode, then STOP: pilot can start | not started |
+| 5b. Inference options | done 2026-11-14 (autonomous, committed) |
+| 6. Batch mode | in progress (autonomous; pilot NOT run, session rule 2) |
 | 7. Optimum analysis | not started |
 | 8. Non-LLM baseline | not started |
 | 9. UI | not started |
@@ -49,6 +49,13 @@ D7. Failed requests. What: request_status per record (ok / timeout / error); fai
 D8. Throughput. What: throughput_msgs_per_min = successful timed requests / sum of their latencies x 60 (client latency includes HTTP); wall_throughput_msgs_per_min kept separately. resource_metrics also excludes failed and cold requests now. Revert: metrics.compute_resource_metrics.
 D9. Latency-inflated runs (session rule 1). What: manifest.software.ollama_url is recorded from now on; report_latency_inflated() = no ollama_url recorded or "localhost" in it, so all legacy runs and any run made before the fix are flagged; the loaded report gets latency_inflated; Results shows a warning in Cost, Compare marks latency cells with * and a footnote. Alternative: a list of filenames (brittle). Revert: manifest.report_latency_inflated.
 D10. McNemar pairing. What: compare_runs pairs records by source_id; correctness uses unknown = error; "not comparable" when a fingerprint is missing (legacy), differs, or the record sets differ. Exact binomial below 25 discordant pairs, chi-square with continuity correction otherwise. Holm helper for Phase 7. Revert: detection.compare_runs.
+D12. Output cap (PROVISIONAL). What: DEFAULT_NUM_PREDICT = 256 for every model and variant (per-variant num_predict removed). Measured: fewshotcot, longest message (seed:23), one request per installed model: 32-43 output tokens, all done_reason "stop". 256 = ~6x the maximum. Since it equals the budgeted cap, MESSAGE_MAX_CHARS is unchanged (3,945) and the phi-type re-check (needed only if the cap rose above 256) was not triggered. Alternative: 128 (tighter) or per-variant caps (24/24/160 before). Revert: config.DEFAULT_NUM_PREDICT.
+D13. num_ctx auto-raise. What: default num_ctx 4096, capped at the model's context_length; raised in 512 steps only when the longest prompt of the sample does not fit with the model's calibrated chars/token (never with the default estimate, which is what MESSAGE_MAX_CHARS is built on); a user-set num_ctx is never changed (the run is refused instead, naming the record). The raise is recorded in manifest.inference.options_resolution. Why: rule 9 (safe for any model, calibration never blocks). Alternative: always refuse. Revert: options.resolve_options.
+D14. Per-model overrides. What: model_overrides.json in the project root (optional; absent = defaults), written by `python -m backend.calibrate <model>` (max 3 prefill requests: longest email, longest Links header, longest SMS; stores min chars/token x 0.95, digest, measurements) or by hand (num_predict). Revert: delete the file.
+D15. Truncated output. What: done_reason == "length" -> truncated_output = true, the answer is not parsed, prediction = unknown (an error in the primary metrics); counted in timing.truncated_output. Revert: evaluator.classify_message.
+D16. Possibly cut input. What: input_possibly_truncated = prompt_eval_count + num_predict >= num_ctx (prompt_eval_count counts cached tokens too, see D2); flagged and counted (timing.input_possibly_truncated), the prediction is kept. Why: it is still the model's answer on what it saw; the count makes it visible. Alternative: treat as unknown. Revert: evaluator.classify_message.
+D17. num_thread / num_batch actually used. What: read from the runner command line (-t / -b) after the first request; Ollama shows -t only when num_thread is set, so with Ollama's default num_thread is null; num_batch is shown (512). Stored in manifest.inference.ollama_resolved.
+D18. Removed dead config: OLLAMA_NUM_PREDICT, CLASSIFICATION_PROMPT (unused since Phase 1). inference_config.num_predict is now null (see manifest.inference.options).
 D11. Optional items skipped: base-rate precision, cost-weighted error, logprob scores / ROC / PR (session rule 1).
 
 ## Checklist
@@ -122,10 +129,12 @@ D11. Optional items skipped: base-rate precision, cost-weighted error, logprob s
 - [x] (optional) logprob scores, ROC/PR: SKIPPED (session rule 1)
 
 ### Phase 5b: inference options
-- [ ] num_ctx, num_thread, num_predict, num_batch configurable, validated
-- [ ] truncated_output detection
-- [ ] options in run identity
-- [ ] Run tab advanced expander
+- [x] num_ctx, num_thread, num_predict, num_batch configurable, validated
+- [x] truncated_output detection
+- [x] options in run identity
+- [x] Run tab advanced expander
+
+- [x] per-model overrides + optional calibration CLI (session rule 9)
 
 ### Phase 6: batch mode
 - [ ] experiment file format + experiments/pilot.yaml, main.yaml, latency_variance.yaml
@@ -291,4 +300,15 @@ Done:
 - requirements: scipy==1.18.1. Tests: tests/test_stats.py (19), compat + AppTests. 210 tests pass. Live AppTest: 4 tabs, no errors, no model loaded.
 Deviations: optional items skipped (D11). EvaluationRun.failed now means failed requests (D7).
 Open: Phase 9 completes the Compare table (CI columns for other metrics, legacy/dev toggle, fingerprint warning).
+
+### Phase 5b (2026-11-14, autonomous)
+Done:
+- `backend/options.py`: resolve_options (num_ctx / num_thread / num_predict / num_batch; temperature, top_p, seed fixed; validation: num_thread <= logical cores, num_ctx <= model context_length, longest prompt + num_predict fits num_ctx x 0.9, else refuse naming the record; auto-raise only for calibrated tokenizers), longest_prompt, required_num_ctx, resolved_from_runner, run_options / differing_options / options_label (run identity).
+- `backend/model_overrides.py` (optional JSON per model), `backend/calibrate.py` (CLI, <= 3 requests, unloads).
+- evaluator: options passed to warm-up and every request; truncated_output; input_possibly_truncated; num_thread / num_batch from the runner; manifest.inference.options_resolution + ollama_resolved.
+- config: DEFAULT_NUM_PREDICT = 256 (provisional, D12), MODEL_OVERRIDES_PATH; per-variant num_predict removed.
+- Run tab: "advanced" expander (4 number inputs, 0 = default), live resolution: options sent + notes (calibration note) or an error that disables the Run button.
+- Tests: tests/test_options.py (28: validation, denser calibrated tokenizer, model without metadata, overrides file, calibration with a fake denser tokenizer, truncated output, cut input, refusal before any request) + 3 AppTests incl. an end-to-end UI run (model select -> 50 records -> Run -> report saved with 13/13/12/12 cells). 241 tests pass.
+- Real checks (<= 5 requests each, nothing left loaded): fewshotcot output length on all 5 installed models (5 requests); options + truncation on the smallest model (2 requests: num_predict 8 -> done_reason "length" -> truncated_output, unknown; num_thread 4 -> runner "-t 4"); longest prompt of the real 1000 sample = 8,223 chars, ~3,427 est. tokens + 256 <= 3,686 (fits without calibration).
+Open: the output cap is provisional (D12); the user may set a per-model num_predict in model_overrides.json.
 

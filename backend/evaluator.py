@@ -17,6 +17,7 @@ import time
 from dataclasses import dataclass, field
 
 import pandas as pd
+import psutil
 import requests
 
 from config import (
@@ -28,6 +29,7 @@ from config import (
     DEFAULT_NUM_GPU,
     OLLAMA_GENERATE_ENDPOINT,
     OLLAMA_NUM_CTX,
+    DEFAULT_NUM_PREDICT,
     OLLAMA_REQUEST_TIMEOUT,
     OLLAMA_SEED,
     OLLAMA_SHOW_ENDPOINT,
@@ -43,8 +45,9 @@ from config import (
     to_binary_label,
 )
 from .hardware import hardware_block
-from .manifest import now_iso, ollama_version, power_state
-from .profiler import ResourceSampler, model_matches, ollama_ps, read_tree_rss_mb
+from .manifest import model_details, now_iso, ollama_version, power_state
+from .options import resolve_options, resolved_from_runner
+from .profiler import ResourceSampler, model_matches, ollama_ps, read_tree_rss_mb, runner_cmdlines
 from .utils import logger
 
 
@@ -70,6 +73,8 @@ class InferenceResult:
     is_cold_request: bool = False  # cold start: the first request, which paid the model load
     load_duration_s: float = 0.0
     request_status: str = "ok"  # ok | timeout | error
+    truncated_output: bool = False  # output hit num_predict: not parsed, counted as unknown
+    input_possibly_truncated: bool = False  # prompt_eval_count reached num_ctx - num_predict
     prompt_eval_duration_s: float | None = None  # Ollama's own timings (seconds)
     eval_duration_s: float | None = None
     total_duration_s: float | None = None
@@ -106,6 +111,8 @@ class EvaluationRun:
     baseline_ram_mb: float | None = None
     resources: dict = field(default_factory=dict)  # ResourceSampler summary
     hardware: dict = field(default_factory=dict)  # hardware block at run start
+    options_resolution: dict = field(default_factory=dict)  # backend.options.ResolvedOptions.to_manifest()
+    ollama_resolved: dict = field(default_factory=dict)  # num_thread / num_batch Ollama used, if readable
 
     @property
     def total_latency(self) -> float:
@@ -229,11 +236,7 @@ def build_output_schema(prompt_variant: str | None = None) -> dict:
     return {"type": "object", "properties": properties, "required": required}
 
 
-def settings_num_predict(variant: str) -> int:
-    return int(get_prompt_variant(variant)["num_predict"])
-
-
-def _build_options(num_gpu: int | None, num_predict: int) -> dict:
+def _build_options(num_gpu: int | None, num_predict: int = DEFAULT_NUM_PREDICT) -> dict:
     """Ollama generation options shared by warm-up and evaluation requests."""
     options = {
         "temperature": OLLAMA_TEMPERATURE,
@@ -265,7 +268,7 @@ def _post_generate(payload: dict, num_gpu: int | None) -> requests.Response:
     return resp
 
 
-def warm_up_model(model_name: str, num_gpu: int | None = DEFAULT_NUM_GPU) -> float:
+def warm_up_model(model_name: str, num_gpu: int | None = DEFAULT_NUM_GPU, options: dict | None = None) -> float:
     """
     Load the model into memory with one tiny request before the timed run.
 
@@ -277,7 +280,7 @@ def warm_up_model(model_name: str, num_gpu: int | None = DEFAULT_NUM_GPU) -> flo
         "model": model_name,
         "prompt": "Hi",
         "stream": False,
-        "options": _build_options(num_gpu, num_predict=1),
+        "options": {**(options or _build_options(num_gpu)), "num_predict": 1},
     }
     if model_supports_thinking(model_name):
         payload["think"] = False
@@ -443,6 +446,7 @@ def classify_message(
     num_gpu: int | None = DEFAULT_NUM_GPU,
     channel: str | None = None,
     prompt_variant: str | None = None,
+    options: dict | None = None,
 ) -> tuple[str, str, float, dict]:
     """
     Send a single message to Ollama for binary classification (malicious vs. valid).
@@ -465,7 +469,7 @@ def classify_message(
         "prompt": prompt,
         "stream": False,
         "format": build_output_schema(variant),
-        "options": _build_options(num_gpu, settings["num_predict"]),
+        "options": dict(options) if options else _build_options(num_gpu),
     }
     if model_supports_thinking(model_name):
         payload["think"] = False
@@ -497,8 +501,17 @@ def classify_message(
 
     latency = time.perf_counter() - start
     raw_response = data.get("response", "").strip()
-    binary = parse_binary_label(raw_response)
+    sent_options = payload["options"]
+    # An answer cut off at num_predict is never parsed: it counts as "unknown".
+    truncated_output = data.get("done_reason") == "length"
+    binary = "unknown" if truncated_output else parse_binary_label(raw_response)
     predicted = binary_to_channel_label(binary, channel)
+    # Ollama shortens a prompt that does not fit num_ctx; prompt_eval_count counts the
+    # whole prompt (also when it is cached), so reaching num_ctx - num_predict means
+    # the input may have been cut.
+    prompt_tokens = data.get("prompt_eval_count") or 0
+    num_ctx = int(sent_options.get("num_ctx") or 0)
+    input_possibly_truncated = bool(num_ctx) and prompt_tokens + int(sent_options.get("num_predict") or 0) >= num_ctx
 
     metadata = {
         "prompt_eval_count": data.get("prompt_eval_count", 0),
@@ -508,6 +521,9 @@ def classify_message(
         "prompt_eval_duration_ns": data.get("prompt_eval_duration", 0),
         "eval_duration_ns": data.get("eval_duration", 0),
         "request_status": "ok",
+        "done_reason": data.get("done_reason"),
+        "truncated_output": truncated_output,
+        "input_possibly_truncated": input_possibly_truncated,
         "binary_label": binary,
         "channel": channel or "unknown",
         "prompt_variant": variant,
@@ -605,6 +621,7 @@ def run_evaluation(
     unload_other_models: bool = DEFAULT_UNLOAD_OTHER_MODELS,
     sampler_factory=None,
     tree_rss_reader=read_tree_rss_mb,
+    user_options: dict | None = None,
 ) -> EvaluationRun:
     """
     Run a full evaluation of a model against the provided dataset.
@@ -619,6 +636,10 @@ def run_evaluation(
       4. the resource sampler starts right before the first evaluation request
          (its first sample is baseline_ram_mb) and stops after the last one
       5. AC power is read at start, during sampling and at the end
+
+    user_options (num_ctx, num_thread, num_predict, num_batch) are resolved and
+    validated first (backend.options); an OptionsError is raised before anything
+    is sent to Ollama when they are invalid or the longest prompt cannot fit.
     """
     if start_mode not in START_MODES:
         raise ValueError(f"Unknown start mode '{start_mode}'. Available: {', '.join(START_MODES)}")
@@ -628,6 +649,21 @@ def run_evaluation(
 
     models = list_available_models()
     run.model_size_bytes = find_model_size(models, model_name)
+
+    model_meta = model_details(model_name)
+    resolved = resolve_options(
+        model_name=model_name,
+        prompt_variant=variant,
+        df_sample=df,
+        model_context_length=model_meta.get("context_length"),
+        logical_cores=psutil.cpu_count(logical=True) or 1,
+        num_gpu=num_gpu,
+        user=user_options,
+    )
+    options = resolved.options
+    run.options_resolution = resolved.to_manifest()
+    for line in resolved.notes:
+        logger.info("Options: %s", line)
 
     logger.info(
         "Starting evaluation: model=%s, records=%d, num_gpu=%s, prompt_variant=%s, start=%s",
@@ -653,7 +689,7 @@ def run_evaluation(
         run.pre_warmup_ram_mb = tree_rss_reader()
     else:
         run.pre_warmup_ram_mb = tree_rss_reader()
-        run.cold_start_s = warm_up_model(model_name, num_gpu)
+        run.cold_start_s = warm_up_model(model_name, num_gpu, options)
         logger.info("Model warm-up finished (cold start %.2fs)", run.cold_start_s)
 
     sampler = sampler_factory(model_name) if sampler_factory else ResourceSampler(model_name)
@@ -676,7 +712,10 @@ def run_evaluation(
                 num_gpu=num_gpu,
                 channel=channel,
                 prompt_variant=variant,
+                options=options,
             )
+            if not run.results:
+                run.ollama_resolved = resolved_from_runner(runner_cmdlines())
 
             is_cold = start_mode == "cold" and not run.results
             load_s = (meta.get("load_duration_ns") or 0) / 1e9
@@ -699,6 +738,8 @@ def run_evaluation(
                 is_cold_request=is_cold,
                 load_duration_s=round(load_s, 4),
                 request_status=meta.get("request_status", "ok"),
+                truncated_output=bool(meta.get("truncated_output")),
+                input_possibly_truncated=bool(meta.get("input_possibly_truncated")),
                 prompt_eval_duration_s=_ns_to_s(meta.get("prompt_eval_duration_ns")),
                 eval_duration_s=_ns_to_s(meta.get("eval_duration_ns")),
                 total_duration_s=_ns_to_s(meta.get("total_duration_ns")),
@@ -740,7 +781,7 @@ def run_evaluation(
         logger.warning("Power: AC power was not present for the whole run (changed=%s)", run.power_changed)
 
     if not run.options_sent:  # every request failed before a response: record what was configured
-        run.options_sent = _build_options(num_gpu, settings_num_predict(variant))
+        run.options_sent = dict(options)
     logger.info(
         "Evaluation complete: %d/%d processed (%.1fs, avg %.2fs/msg, failed=%d, peak RSS %s MB, model %s MB)",
         run.completed, run.total_records, run.elapsed_time, run.avg_latency, run.failed,

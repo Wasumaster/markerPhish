@@ -160,6 +160,20 @@ class OllamaTree:
         return pids
 
 
+def runner_cmdlines() -> list[str]:
+    """Command lines of the Ollama server's descendants (the model runners); [] if unreadable."""
+    pids = OllamaTree()()
+    out = []
+    for pid in pids[1:]:
+        try:
+            cmd = " ".join(psutil.Process(pid).cmdline())
+        except psutil.Error:
+            continue
+        if cmd:
+            out.append(cmd)
+    return out
+
+
 def _running(proc: psutil.Process) -> bool:
     try:
         return proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE

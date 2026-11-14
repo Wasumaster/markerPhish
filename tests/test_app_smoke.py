@@ -182,3 +182,44 @@ def test_results_shows_both_unknown_modes_with_confidence_intervals(fake_ollama,
 def test_legacy_run_in_results_is_flagged_as_latency_inflated(app):
     assert any("Measured before the Ollama URL fix" in w.value for w in app.tabs[2].warning)
 
+
+def test_invalid_advanced_option_disables_the_run(app):
+    app.number_input(key="opt_num_ctx").set_value(1024).run()  # too small for the longest prompt
+    assert not app.exception
+    assert any("does not fit" in e.value for e in app.error)
+    assert next(b for b in app.button if b.label == "Run evaluation").disabled
+
+
+def test_missing_calibration_is_only_a_note(app):
+    import re
+
+    text = " ".join(re.sub(r"<[^>]+>", " ", m.value) for m in app.tabs[1].markdown)
+    assert "No calibration for" in text and "python -m backend.calibrate" in text
+    assert not next(b for b in app.button if b.label == "Run evaluation").disabled
+
+
+def test_end_to_end_run_from_the_ui(fake_ollama, results_dir):
+    """Pick a model, choose 50 records, start: a complete report is saved and shown."""
+    import json
+
+    fake_ollama.responder = lambda m, p, b: '{"label": "malicious"}' if "verify" in p.lower() else '{"label": "valid"}'
+    at = AppTest.from_file(APP, default_timeout=300)
+    at.run()
+    next(s for s in at.sidebar.selectbox if s.label == "model").set_value("zeta-chat:latest")
+    next(s for s in at.sidebar.selectbox if s.label == "sample size").set_value(50)
+    at.run()
+    next(b for b in at.button if b.label == "Run evaluation").click().run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert any("Evaluation session completed" in m.value for m in at.success)
+    files = [f for f in os.listdir(results_dir) if f.endswith(".json")]
+    assert len(files) == 1
+    report = json.load(open(results_dir / files[0], encoding="utf-8"))
+    assert report["model_name"] == "zeta-chat:latest"
+    assert report["manifest"]["dataset"]["sample_size"] == 50
+    assert [c["count"] for c in report["manifest"]["dataset"]["cells"]] == [13, 13, 12, 12]
+    assert report["detection"]["n_records"] == 50
+    assert report["manifest"]["inference"]["options"]["num_predict"] == 256
+    assert report["resources"]["start_mode"] == "warm"
+    assert at.session_state["loaded_filename"] == files[0]
+    assert at.session_state["is_running"] is False
+

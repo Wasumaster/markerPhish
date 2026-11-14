@@ -321,7 +321,7 @@ def build_inference_config(prompt_variant: str) -> dict:
         "task": "binary (malicious vs. valid); channel derived from dataset source",
         "output_format": "JSON Schema (constrained decoding)",
         "num_ctx": OLLAMA_NUM_CTX,
-        "num_predict": settings.get("num_predict"),
+        "num_predict": None,  # see manifest.inference.options (one default for all variants)
         "temperature": OLLAMA_TEMPERATURE,
         "top_p": OLLAMA_TOP_P,
     }
@@ -382,6 +382,8 @@ def build_full_report(
                 "is_cold_request": getattr(r, "is_cold_request", False),
                 "load_duration_s": getattr(r, "load_duration_s", 0.0),
                 "request_status": getattr(r, "request_status", "ok"),
+                "truncated_output": getattr(r, "truncated_output", False),
+                "input_possibly_truncated": getattr(r, "input_possibly_truncated", False),
                 "prompt_eval_count": getattr(r, "prompt_eval_count", None),
                 "eval_count": getattr(r, "eval_count", None),
                 "prompt_eval_duration_s": getattr(r, "prompt_eval_duration_s", None),

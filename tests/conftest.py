@@ -36,6 +36,14 @@ def _block_real_http(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_model_overrides(tmp_path, monkeypatch):
+    """Tests never read or write the real model_overrides.json."""
+    import config
+
+    monkeypatch.setattr(config, "MODEL_OVERRIDES_PATH", str(tmp_path / "model_overrides.json"))
+
+
+@pytest.fixture(autouse=True)
 def _no_real_process_scan(monkeypatch):
     """The profiler never reads the machine's real process list in unit tests."""
     from backend import profiler

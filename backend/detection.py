@@ -180,6 +180,8 @@ def compute_timing(raw: list[dict], wall_time_s: float | None = None) -> dict:
         "errors": statuses.count("error"),
         "failure_rate": round(failed / n, 4) if n else None,
         "cold_requests_excluded": sum(1 for r in ok if r.get("is_cold_request")),
+        "truncated_output": sum(1 for r in raw if r.get("truncated_output")),
+        "input_possibly_truncated": sum(1 for r in raw if r.get("input_possibly_truncated")),
         "latency_s": _stats(latencies),
         "sum_latency_s": round(sum_latency, 3) if sum_latency is not None else None,
         "throughput_msgs_per_min": round(len(latencies) / sum_latency * 60, 3) if sum_latency else None,

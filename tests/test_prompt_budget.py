@@ -24,8 +24,11 @@ def test_longest_prompt_plus_output_fits_context(variant, channel):
     assert estimated_tokens + OLLAMA_NUM_PREDICT_CAP <= OLLAMA_NUM_CTX * (1 - CONTEXT_MARGIN_FRACTION)
 
 
-def test_every_variant_output_budget_is_within_the_cap():
-    assert max(v["num_predict"] for v in PROMPT_VARIANTS.values()) <= OLLAMA_NUM_PREDICT_CAP
+def test_the_default_output_cap_is_the_budgeted_cap():
+    from config import DEFAULT_NUM_PREDICT
+
+    assert DEFAULT_NUM_PREDICT == OLLAMA_NUM_PREDICT_CAP
+    assert all("num_predict" not in v for v in PROMPT_VARIANTS.values())  # one default for all variants
 
 
 def test_message_budget_is_large_enough_to_be_useful():

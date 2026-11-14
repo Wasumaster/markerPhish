@@ -50,6 +50,8 @@ def build_run_report(
         request_fields={
             **{k: v for k, v in (run.request_fields or {}).items() if k != "format"},
             "options_changed_requests": run.options_changed,
+            "options_resolution": run.options_resolution,
+            "ollama_resolved": run.ollama_resolved,
         },
         started_at=run.started_at,
         ended_at=run.ended_at,

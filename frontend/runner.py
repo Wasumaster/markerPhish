@@ -8,10 +8,14 @@ real-time telemetry: progress tracking, dynamic accuracy, mean latency, and ETA.
 from __future__ import annotations
 
 import os
+
 import pandas as pd
+import psutil
 import streamlit as st
 
 from backend.evaluator import loaded_models, other_loaded_models, run_evaluation
+from backend.manifest import model_details
+from backend.options import CONFIGURABLE, OptionsError, resolve_options
 from backend.run_report import build_run_report
 from backend.utils import logger, save_results
 from config import (
@@ -23,6 +27,7 @@ from config import (
 )
 from ui.components import (
     cell,
+    note,
     data_table,
     kv_table,
     page_title,
@@ -99,13 +104,15 @@ def render_evaluation_runner(
             "unload other models before the run (recommended)", value=DEFAULT_UNLOAD_OTHER_MODELS
         )
 
+    user_options, options_error = _render_advanced_options(selected_model, df_eval, prompt_variant, num_gpu)
+
     col_btn, _ = st.columns([1, 2])
     with col_btn:
         start_btn = st.button(
             "Run evaluation",
             type="primary",
             width="stretch",
-            disabled=st.session_state.get("is_running", False),
+            disabled=st.session_state.get("is_running", False) or options_error,
         )
 
     if start_btn:
@@ -115,13 +122,70 @@ def render_evaluation_runner(
         # button disabled for the rest of the session.
         try:
             _execute_run(
-                selected_model, df_eval, num_gpu, mode_display_name, prompt_variant, start_mode, unload_others
+                selected_model, df_eval, num_gpu, mode_display_name, prompt_variant, start_mode, unload_others,
+                user_options,
             )
         except Exception as exc:  # noqa: BLE001 - shown to the user, then logged
             logger.exception("Evaluation run failed")
             st.error(f"Evaluation failed: {exc}")
         finally:
             st.session_state["is_running"] = False
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _model_context_length(model_name: str) -> int | None:
+    """The model's context length from /api/show (does not load the model)."""
+    return model_details(model_name).get("context_length")
+
+
+_OPTION_HELP = {
+    "num_ctx": "Context window in tokens (prompt + output). 0 = default 4096, never above the model's context "
+               "length; raised automatically only if a calibrated tokenizer needs more room.",
+    "num_thread": "CPU threads used by Ollama. 0 = Ollama's default.",
+    "num_predict": "Output token cap. 0 = default for every model (or the model's override). An answer cut at "
+                   "the cap is marked truncated and counted as unknown.",
+    "num_batch": "Prompt-processing batch size. 0 = Ollama's default.",
+}
+
+
+def _render_advanced_options(model_name: str, df_eval: pd.DataFrame, prompt_variant: str, num_gpu) -> tuple:
+    """The 'advanced' expander. Returns (user options, True if they are invalid)."""
+    cores = psutil.cpu_count(logical=True) or 1
+    with st.expander("advanced", expanded=False):
+        cols = st.columns(len(CONFIGURABLE))
+        values = {}
+        for col, name in zip(cols, CONFIGURABLE):
+            with col:
+                values[name] = int(
+                    st.number_input(
+                        name,
+                        min_value=0,
+                        max_value=cores if name == "num_thread" else None,
+                        value=0,
+                        step=512 if name == "num_ctx" else 1,
+                        help=_OPTION_HELP[name],
+                        key=f"opt_{name}",
+                    )
+                )
+        user = {k: v for k, v in values.items() if v}
+        try:
+            resolved = resolve_options(
+                model_name=model_name,
+                prompt_variant=prompt_variant,
+                df_sample=df_eval,
+                model_context_length=_model_context_length(model_name),
+                logical_cores=cores,
+                num_gpu=num_gpu,
+                user=user,
+            )
+        except OptionsError as exc:
+            st.error(str(exc))
+            return user, True
+        sent = ", ".join(f"{k}={v}" for k, v in resolved.options.items())
+        note(f"Options sent to Ollama: {sent}. Temperature and seed are fixed.", mono=False)
+        for line in resolved.notes:
+            note(line)
+    return user, False
 
 
 def _execute_run(
@@ -132,6 +196,7 @@ def _execute_run(
     prompt_variant: str,
     start_mode: str = DEFAULT_START_MODE,
     unload_others: bool = DEFAULT_UNLOAD_OTHER_MODELS,
+    user_options: dict | None = None,
 ) -> None:
     """Run one evaluation with live telemetry, then build, store and save the report."""
     progress_bar = st.progress(0, text="Loading model into memory (cold start, excluded from latency)...")
@@ -207,6 +272,7 @@ def _execute_run(
         prompt_variant=prompt_variant,
         start_mode=start_mode,
         unload_other_models=unload_others,
+        user_options=user_options,
     )
 
     st.session_state["evaluation_run"] = eval_run

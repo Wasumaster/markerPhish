@@ -13,6 +13,8 @@ import os
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(PROJECT_ROOT, "Data")
 RESULTS_DIR = os.path.join(PROJECT_ROOT, "results")
+# Optional per-model settings (chars per token from calibration, num_predict).
+MODEL_OVERRIDES_PATH = os.path.join(PROJECT_ROOT, "model_overrides.json")
 
 # ──────────────────────────────────────────────
 # Dataset paths
@@ -192,19 +194,16 @@ PROMPT_VARIANTS = {
         "description": "Zero-shot: instructions only, JSON label output.",
         "few_shot": False,
         "reasoning": False,
-        "num_predict": 24,
     },
     "fewshot": {
         "description": "Few-shot: instructions plus 6 hand-written examples, JSON label output.",
         "few_shot": True,
         "reasoning": False,
-        "num_predict": 24,
     },
     "fewshotcot": {
         "description": "Few-shot with short reasoning: examples plus a one-sentence justification before the label.",
         "few_shot": True,
         "reasoning": True,
-        "num_predict": 160,
     },
 }
 ACTIVE_PROMPT_VARIANT = "fewshot"
@@ -226,10 +225,15 @@ OLLAMA_REQUEST_TIMEOUT = 300  # seconds per request
 # limit that keeps every prompt inside this window is derived at the end of this
 # file (MESSAGE_MAX_CHARS).
 OLLAMA_NUM_CTX = 4096
-# Output token cap assumed by the context budget. It must be >= every num_predict
-# actually sent (currently max 160, fewshotcot); Phase 5b measures real CoT
-# output lengths and sets the cap from them.
-OLLAMA_NUM_PREDICT_CAP = 256
+# Output token cap (num_predict): one default for every model and prompt variant.
+# PROVISIONAL, measured 2026-11-14: fewshotcot on the longest message, one request
+# per installed model, produced 32-43 output tokens (all stopped on their own).
+# 256 is ~6x the longest measured output, generous for verbose models; outputs
+# that hit the cap are marked truncated_output and never parsed. A model can get
+# its own cap in model_overrides.json; the value used is stored in every run.
+DEFAULT_NUM_PREDICT = 256
+# The context budget below assumes this output cap.
+OLLAMA_NUM_PREDICT_CAP = DEFAULT_NUM_PREDICT
 # Share of num_ctx kept free as a safety margin for the token estimate.
 CONTEXT_MARGIN_FRACTION = 0.10
 # Conservative characters-per-token estimate used for the budget, from a
@@ -246,9 +250,6 @@ OLLAMA_TEMPERATURE = 0.0  # deterministic output for evaluation
 # greedy, so the seed should not matter; it is fixed anyway and recorded.
 OLLAMA_SEED = 42
 OLLAMA_TOP_P = 1.0
-# Default generation budget (that of the active prompt variant). Each variant
-# defines its own num_predict in PROMPT_VARIANTS.
-OLLAMA_NUM_PREDICT = PROMPT_VARIANTS[ACTIVE_PROMPT_VARIANT]["num_predict"]
 
 # ──────────────────────────────────────────────
 # Start mode and resource profiling
@@ -459,15 +460,6 @@ def build_classification_prompt(
     return "\n\n".join(parts)
 
 
-# Backward-compatible template (email channel, active variant). It is safe to use
-# with str.format(message_text=...): every literal brace is escaped.
-_PROMPT_PLACEHOLDER = "\x00MESSAGE_TEXT\x00"
-CLASSIFICATION_PROMPT = (
-    build_classification_prompt(_PROMPT_PLACEHOLDER, "email", ACTIVE_PROMPT_VARIANT)
-    .replace("{", "{{")
-    .replace("}", "}}")
-    .replace(_PROMPT_PLACEHOLDER, "{message_text}")
-)
 
 
 # ──────────────────────────────────────────────

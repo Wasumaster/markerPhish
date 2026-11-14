@@ -83,6 +83,10 @@ class FakeOllama:
     unload_ignored: set = field(default_factory=set)
     load_ns: int = 2_000_000_000
     vram_bytes: int = 0
+    # Tokenizer density: if set, prompt_eval_count = len(prompt) / chars_per_token.
+    chars_per_token: float | None = None
+    # context_length reported by /api/show for every model with details
+    context_length: int = 32768
 
     # ── routing ──
     def get(self, url: str, *args, **kwargs) -> FakeResponse:
@@ -119,7 +123,7 @@ class FakeOllama:
         return {
             "details": model["details"],
             "capabilities": self.capabilities,
-            "model_info": {f"{family}.context_length": 32768, "general.parameter_count": 1_543_714_304},
+            "model_info": {f"{family}.context_length": self.context_length, "general.parameter_count": 1_543_714_304},
         }
 
     def load(self, name: str) -> None:
@@ -140,16 +144,26 @@ class FakeOllama:
             text = self.responder(model, prompt, body)
         else:
             text = '{"label": "valid"}'
+        options = body.get("options") or {}
+        prompt_tokens = int(len(prompt) / self.chars_per_token) if self.chars_per_token else self.prompt_eval_count
+        num_ctx = options.get("num_ctx")
+        if num_ctx:
+            prompt_tokens = min(prompt_tokens, int(num_ctx))  # Ollama shortens an oversized prompt
+        eval_count, done_reason = self.eval_count, "stop"
+        cap = options.get("num_predict")
+        if cap and eval_count >= cap:
+            eval_count, done_reason = int(cap), "length"
+            text = text[: max(1, len(text) // 2)]
         return {
             "model": model,
             "response": text,
             "done": True,
-            "done_reason": "stop",
+            "done_reason": done_reason,
             "total_duration": 1_200_000_000,
             "load_duration": 5_000_000 if was_loaded else self.load_ns,
-            "prompt_eval_count": self.prompt_eval_count,
+            "prompt_eval_count": prompt_tokens,
             "prompt_eval_duration": 900_000_000,
-            "eval_count": self.eval_count,
+            "eval_count": eval_count,
             "eval_duration": 250_000_000,
         }
 
