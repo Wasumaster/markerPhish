@@ -22,7 +22,7 @@ from backend.utils import (
     report_cold_start,
     report_prompt_variant,
 )
-from backend.manifest import current_environment, manifest_differences, manifest_summary
+from backend.manifest import current_environment, manifest_differences, manifest_summary, report_power_warning
 from config import LEGACY_PROMPT_VARIANT, is_binary_match
 from ui.components import (
     DASH,
@@ -66,6 +66,10 @@ def render_results(report: dict) -> None:
             "All model inferences returned 'unknown' or timed out. "
             "If using Pascal architecture GPUs, ensure 'CPU Safe Mode' is enabled in the sidebar."
         )
+
+    power_warning = report_power_warning(report)
+    if power_warning:
+        st.warning(power_warning)
 
     # ──────────────────────────────────────────────
     # Level 1: Binary threat detection metrics
@@ -254,7 +258,9 @@ def render_results(report: dict) -> None:
     # ──────────────────────────────────────────────
     # Level 5: Audit Trail, Hardware & Export
     # ──────────────────────────────────────────────
-    hw_prof = report.get("hardware_profile")
+    _render_resources(report.get("resources"))
+
+    hw_prof = report.get("hardware") or report.get("hardware_profile")
     if hw_prof:
         with st.expander("host hardware profile during benchmark", expanded=False):
             pairs = [
@@ -273,6 +279,12 @@ def render_results(report: dict) -> None:
                     ("compute", hw_prof.get("compute_cap", DASH)),
                     ("driver", hw_prof.get("gpu_driver", DASH)),
                 ]
+            for key, label in (("os_version", "os"), ("python_version", "python"), ("ollama_version", "ollama"),
+                               ("scanned_at", "scanned at")):
+                if hw_prof.get(key):
+                    pairs.append((label, hw_prof[key]))
+            if hw_prof.get("ram_available_gb") is not None:
+                pairs.insert(3, ("ram free at scan", f"{hw_prof['ram_available_gb']:.1f} GB"))
             kv_table(pairs, headers=("component", "value"))
 
     _render_manifest(report)
@@ -289,6 +301,50 @@ def render_results(report: dict) -> None:
 
     with st.expander("full scikit-learn report output", expanded=False):
         st.code(cls.get("classification_report_text", "N/A"), language="text")
+
+
+def _render_resources(res: dict | None) -> None:
+    """Memory and CPU of the Ollama server during the run (runs with a resources block)."""
+    section_title(
+        "Resources",
+        "Ollama server during the timed requests. Model memory is reported by Ollama (/api/ps); "
+        "process RSS is secondary and noisy (memory-mapped weights, OS page cache).",
+    )
+    if not res:
+        note("This run has no resource measurements (recorded since protocol 2).")
+        return
+    fits = res.get("fits_profile") or {}
+
+    def pct(value) -> str:
+        return DASH if value is None else f"{value:.1f} %"
+
+    def fit_text(name: str) -> str:
+        f = fits.get(name) or {}
+        if f.get("fits_profile") is None:
+            return DASH
+        verdict = "fits" if f["fits_profile"] else "does not fit"
+        return f"{verdict} (budget {fmt_mb(f.get('budget_mb'))})"
+
+    rows = [
+        ("model memory (Ollama)", fmt_mb(res.get("model_size_mb"))),
+        ("model memory on GPU", fmt_mb(res.get("model_vram_mb"))),
+        ("model file on disk", fmt_mb(res.get("model_disk_mb"))),
+        ("peak process RSS", fmt_mb(res.get("peak_ram_mb"))),
+        ("mean process RSS", fmt_mb(res.get("mean_ram_mb"))),
+        ("RSS before first request (baseline)", fmt_mb(res.get("baseline_ram_mb"))),
+        ("RSS before model load", fmt_mb(res.get("pre_warmup_ram_mb"))),
+        ("peak / mean CPU (whole machine)", f"{pct(res.get('peak_cpu_pct'))} / {pct(res.get('mean_cpu_pct'))}"),
+        ("start", f"{res.get('start_mode', DASH)} · cold start {fmt_seconds(res.get('cold_start_s'))}"),
+        ("samples", f"{fmt_int(res.get('n_samples'))} every {res.get('sample_interval_s', DASH)} s · "
+                    f"sampler cost {fmt_ratio(res.get('sampler_cost_ms'), 2)} ms"),
+        ("models loaded before run", ", ".join(res.get("ollama_loaded_models") or []) or "none"),
+    ]
+    rows += [(f"fits {name}", fit_text(name)) for name in fits]
+    if res.get("peak_vram_mb") is not None:
+        rows.insert(2, ("peak VRAM (NVML)", fmt_mb(res.get("peak_vram_mb"))))
+    kv_table(rows, headers=("measure", "value"))
+    if res.get("other_models_loaded") and not res.get("other_models_unloaded"):
+        st.warning("Other models were loaded in Ollama during this run; memory and latency include their effect.")
 
 
 @st.cache_data(ttl=60, show_spinner=False)

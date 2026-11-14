@@ -21,6 +21,10 @@ import requests
 
 from config import (
     ACTIVE_PROMPT_VARIANT,
+    COLD_UNLOAD_TIMEOUT_S,
+    DEFAULT_START_MODE,
+    DEFAULT_UNLOAD_OTHER_MODELS,
+    START_MODES,
     DEFAULT_NUM_GPU,
     OLLAMA_GENERATE_ENDPOINT,
     OLLAMA_NUM_CTX,
@@ -38,7 +42,9 @@ from config import (
     is_binary_match,
     to_binary_label,
 )
-from .manifest import now_iso, power_state
+from .hardware import hardware_block
+from .manifest import now_iso, ollama_version, power_state
+from .profiler import ResourceSampler, model_matches, ollama_ps, read_tree_rss_mb
 from .utils import logger
 
 
@@ -61,6 +67,8 @@ class InferenceResult:
     channel: str = ""
     source_id: str = ""
     group_id: str = ""
+    is_cold_request: bool = False  # cold start: the first request, which paid the model load
+    load_duration_s: float = 0.0
 
 
 @dataclass
@@ -84,6 +92,16 @@ class EvaluationRun:
     options_changed: int = 0
     request_fields: dict = field(default_factory=dict)  # format schema, think, stream
     power_at_start: dict | None = None
+    power_at_end: dict | None = None
+    power_changed: bool = False
+    on_battery_during_run: bool = False
+    start_mode: str = DEFAULT_START_MODE
+    prerun: dict = field(default_factory=dict)  # loaded models before the run, unloads
+    cold_unload_confirmed: bool | None = None
+    pre_warmup_ram_mb: float | None = None
+    baseline_ram_mb: float | None = None
+    resources: dict = field(default_factory=dict)  # ResourceSampler summary
+    hardware: dict = field(default_factory=dict)  # hardware block at run start
 
     @property
     def total_latency(self) -> float:
@@ -496,107 +514,223 @@ def classify_message(
     return predicted, raw_response, latency, metadata
 
 
+def loaded_models() -> list[str] | None:
+    """Names of the models currently loaded in Ollama (/api/ps), or None if unreachable."""
+    models = ollama_ps()
+    return None if models is None else [m.get("name") or m.get("model") for m in models]
+
+
+def unload_model(model_name: str) -> bool:
+    """Ask Ollama to unload a model now (keep_alive 0). Returns False on error."""
+    try:
+        resp = requests.post(
+            OLLAMA_GENERATE_ENDPOINT, json={"model": model_name, "keep_alive": 0}, timeout=OLLAMA_REQUEST_TIMEOUT
+        )
+        return resp.status_code == 200
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Could not unload %s: %s", model_name, e)
+        return False
+
+
+def wait_until_unloaded(
+    model_name: str,
+    timeout_s: float = COLD_UNLOAD_TIMEOUT_S,
+    poll_s: float = 0.5,
+    sleep=time.sleep,
+    clock=time.monotonic,
+) -> bool:
+    """Poll /api/ps until model_name is no longer loaded. Returns False on timeout."""
+    deadline = clock() + timeout_s
+    while True:
+        models = ollama_ps()
+        if models is not None and not any(model_matches(m, model_name) for m in models):
+            return True
+        if clock() >= deadline:
+            return False
+        sleep(poll_s)
+
+
+def other_loaded_models(loaded: list[str] | None, model_name: str) -> list[str]:
+    """Loaded models other than model_name ("x" and "x:latest" are the same model)."""
+    return [m for m in (loaded or []) if not model_matches({"name": m}, model_name)]
+
+
+def prepare_ollama(model_name: str, unload_others: bool = DEFAULT_UNLOAD_OTHER_MODELS) -> dict:
+    """
+    Pre-run check: which models are loaded; optionally unload every other one.
+    Returns the facts stored in the run's resources block.
+    """
+    loaded = loaded_models()
+    others = other_loaded_models(loaded, model_name)
+    info = {
+        "ollama_loaded_models": loaded,
+        "other_models_loaded": bool(others),
+        "other_models_unloaded": [],
+        "other_models_unload_failed": [],
+    }
+    if others:
+        logger.warning("Other models are loaded in Ollama before the run: %s", ", ".join(others))
+        if unload_others:
+            for name in others:
+                ok = unload_model(name) and wait_until_unloaded(name)
+                info["other_models_unloaded" if ok else "other_models_unload_failed"].append(name)
+    return info
+
+
+def power_changed(power_readings: list[bool | None]) -> tuple[bool, bool]:
+    """
+    (power_changed, on_battery_at_some_point) from AC readings taken during a run
+    (start, sampler, end). Unknown readings (None) are ignored.
+    """
+    known = [p for p in power_readings if p is not None]
+    return len(set(known)) > 1, (False in known)
+
+
 def run_evaluation(
     model_name: str,
     df: pd.DataFrame,
     num_gpu: int | None = DEFAULT_NUM_GPU,
     progress_callback=None,
     prompt_variant: str | None = None,
+    start_mode: str = DEFAULT_START_MODE,
+    unload_other_models: bool = DEFAULT_UNLOAD_OTHER_MODELS,
+    sampler_factory=None,
+    tree_rss_reader=read_tree_rss_mb,
 ) -> EvaluationRun:
     """
     Run a full evaluation of a model against the provided dataset.
 
-    The model is warmed up first, so the timed run (and the first latency)
-    excludes model loading; the load time is stored as cold_start_s.
+    Sequence:
+      1. pre-run check: loaded models; unload the others (default)
+      2. pre_warmup_ram_mb: Ollama process-tree RSS before the model is (re)loaded
+      3. warm start: one excluded warm-up request (cold_start_s = its load time);
+         cold start: unload the model and wait until /api/ps no longer lists it;
+         the first evaluation request then pays the load (cold_start_s = its
+         load_duration) and its latency is excluded from the latency statistics
+      4. the resource sampler starts right before the first evaluation request
+         (its first sample is baseline_ram_mb) and stops after the last one
+      5. AC power is read at start, during sampling and at the end
     """
+    if start_mode not in START_MODES:
+        raise ValueError(f"Unknown start mode '{start_mode}'. Available: {', '.join(START_MODES)}")
     variant = prompt_variant or ACTIVE_PROMPT_VARIANT
     get_prompt_variant(variant)  # validate early
-    run = EvaluationRun(model_name=model_name, total_records=len(df), prompt_variant=variant)
+    run = EvaluationRun(model_name=model_name, total_records=len(df), prompt_variant=variant, start_mode=start_mode)
 
-    # Fetch model size
     models = list_available_models()
     run.model_size_bytes = find_model_size(models, model_name)
 
     logger.info(
-        "Starting evaluation: model=%s, records=%d, num_gpu=%s, prompt_variant=%s",
-        model_name,
-        len(df),
-        num_gpu,
-        variant,
+        "Starting evaluation: model=%s, records=%d, num_gpu=%s, prompt_variant=%s, start=%s",
+        model_name, len(df), num_gpu, variant, start_mode,
     )
     run.started_at = now_iso()
     run.power_at_start = power_state()
+    run.hardware = hardware_block(ollama_version())
     run.request_fields = {
         "endpoint": "/api/generate",
         "stream": False,
         "format": build_output_schema(variant),
         "think": False if model_supports_thinking(model_name) else None,
     }
-    run.cold_start_s = warm_up_model(model_name, num_gpu)
-    logger.info("Model warm-up finished (cold start %.2fs)", run.cold_start_s)
+
+    run.prerun = prepare_ollama(model_name, unload_other_models)
+
+    if start_mode == "cold":
+        unload_model(model_name)
+        run.cold_unload_confirmed = wait_until_unloaded(model_name, timeout_s=COLD_UNLOAD_TIMEOUT_S)
+        if not run.cold_unload_confirmed:
+            logger.warning("Cold start: %s was still loaded after %ss", model_name, COLD_UNLOAD_TIMEOUT_S)
+        run.pre_warmup_ram_mb = tree_rss_reader()
+    else:
+        run.pre_warmup_ram_mb = tree_rss_reader()
+        run.cold_start_s = warm_up_model(model_name, num_gpu)
+        logger.info("Model warm-up finished (cold start %.2fs)", run.cold_start_s)
+
+    sampler = sampler_factory(model_name) if sampler_factory else ResourceSampler(model_name)
+    try:
+        run.baseline_ram_mb = sampler.start()
+    except Exception as e:  # noqa: BLE001 - profiling must never prevent the evaluation
+        logger.warning("Resource sampler could not start: %s", e)
+        sampler = None
     run.start_time = time.time()
 
     has_source = "source" in df.columns
-    for idx, row in df.iterrows():
-        record_id = row["id"]
-        text = row["text"]
-        true_label = row["true_label"]
-        channel = channel_for_source(row["source"] if has_source else None, true_label)
+    try:
+        for _, row in df.iterrows():
+            true_label = row["true_label"]
+            channel = channel_for_source(row["source"] if has_source else None, true_label)
 
-        predicted, raw_resp, latency, meta = classify_message(
-            model_name=model_name,
-            message_text=text,
-            num_gpu=num_gpu,
-            channel=channel,
-            prompt_variant=variant,
-        )
+            predicted, raw_resp, latency, meta = classify_message(
+                model_name=model_name,
+                message_text=row["text"],
+                num_gpu=num_gpu,
+                channel=channel,
+                prompt_variant=variant,
+            )
 
-        is_bin_correct = is_binary_match(true_label, predicted)
-        result = InferenceResult(
-            record_id=record_id,
-            true_label=true_label,
-            predicted_label=predicted,
-            raw_response=raw_resp,
-            latency_seconds=latency,
-            prompt_eval_count=meta.get("prompt_eval_count", 0),
-            eval_count=meta.get("eval_count", 0),
-            is_binary_correct=is_bin_correct,
-            true_binary=to_binary_label(true_label),
-            predicted_binary=to_binary_label(predicted),
-            channel=channel,
-            source_id=str(row["source_id"]) if "source_id" in df.columns else "",
-            group_id=str(row["group_id"]) if "group_id" in df.columns else "",
-        )
+            is_cold = start_mode == "cold" and not run.results
+            load_s = (meta.get("load_duration_ns") or 0) / 1e9
+            if is_cold:
+                run.cold_start_s = load_s
+            result = InferenceResult(
+                record_id=row["id"],
+                true_label=true_label,
+                predicted_label=predicted,
+                raw_response=raw_resp,
+                latency_seconds=latency,
+                prompt_eval_count=meta.get("prompt_eval_count", 0),
+                eval_count=meta.get("eval_count", 0),
+                is_binary_correct=is_binary_match(true_label, predicted),
+                true_binary=to_binary_label(true_label),
+                predicted_binary=to_binary_label(predicted),
+                channel=channel,
+                source_id=str(row["source_id"]) if "source_id" in df.columns else "",
+                group_id=str(row["group_id"]) if "group_id" in df.columns else "",
+                is_cold_request=is_cold,
+                load_duration_s=round(load_s, 4),
+            )
 
-        sent = meta.get("options_sent")
-        if sent:
-            if not run.options_sent:
-                run.options_sent = sent
-            elif sent != run.options_sent:
-                run.options_changed += 1
+            sent = meta.get("options_sent")
+            if sent:
+                if not run.options_sent:
+                    run.options_sent = sent
+                elif sent != run.options_sent:
+                    run.options_changed += 1
 
-        run.results.append(result)
-        run.completed += 1
-        if predicted == "unknown":
-            run.failed += 1
+            run.results.append(result)
+            run.completed += 1
+            if predicted == "unknown":
+                run.failed += 1
 
-        if progress_callback:
-            progress_callback(run.completed, run.total_records, result)
+            if progress_callback:
+                progress_callback(run.completed, run.total_records, result)
 
-        # Aggressive memory cleanup every 25 messages
-        if run.completed % 25 == 0:
-            gc.collect()
+            if run.completed % 25 == 0:
+                gc.collect()
+    finally:
+        run.end_time = time.time()
+        if sampler is not None:
+            try:
+                run.resources = sampler.stop()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Resource sampler could not stop cleanly: %s", e)
+        run.ended_at = now_iso()
+        run.power_at_end = power_state()
 
-    run.end_time = time.time()
-    run.ended_at = now_iso()
+    readings = [(run.power_at_start or {}).get("on_ac_power")]
+    if run.resources.get("ac_power_lost_during_run"):
+        readings.append(False)
+    readings.append((run.power_at_end or {}).get("on_ac_power"))
+    run.power_changed, run.on_battery_during_run = power_changed(readings)
+    if run.power_changed or run.on_battery_during_run:
+        logger.warning("Power: AC power was not present for the whole run (changed=%s)", run.power_changed)
+
     if not run.options_sent:  # every request failed before a response: record what was configured
         run.options_sent = _build_options(num_gpu, settings_num_predict(variant))
     logger.info(
-        "Evaluation complete: %d/%d processed (%.1fs, avg %.2fs/msg, failed=%d)",
-        run.completed,
-        run.total_records,
-        run.elapsed_time,
-        run.avg_latency,
-        run.failed,
+        "Evaluation complete: %d/%d processed (%.1fs, avg %.2fs/msg, failed=%d, peak RSS %s MB, model %s MB)",
+        run.completed, run.total_records, run.elapsed_time, run.avg_latency, run.failed,
+        run.resources.get("peak_ram_mb"), run.resources.get("model_size_mb"),
     )
     return run

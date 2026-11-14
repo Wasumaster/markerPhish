@@ -11,10 +11,16 @@ import os
 import pandas as pd
 import streamlit as st
 
-from backend.evaluator import run_evaluation
+from backend.evaluator import loaded_models, other_loaded_models, run_evaluation
 from backend.run_report import build_run_report
 from backend.utils import logger, save_results
-from config import ACTIVE_PROMPT_VARIANT, PROMPT_VARIANTS
+from config import (
+    ACTIVE_PROMPT_VARIANT,
+    DEFAULT_START_MODE,
+    DEFAULT_UNLOAD_OTHER_MODELS,
+    PROMPT_VARIANTS,
+    START_MODES,
+)
 from ui.components import (
     cell,
     data_table,
@@ -47,7 +53,8 @@ def render_evaluation_runner(
     page_title(
         "Run",
         "Classify every message in the current sample with the selected model and prompt. "
-        "Model loading is measured separately as cold start and is excluded from latency.",
+        "Model loading is measured separately as cold start and is excluded from latency. "
+        "Memory and CPU of the Ollama server are sampled every 0.5 s during the run.",
     )
 
     # ──────────────────────────────────────────────
@@ -67,6 +74,31 @@ def render_evaluation_runner(
             headers=("setting", "value"),
         )
 
+    start_col, _ = st.columns([1, 2])
+    with start_col:
+        start_mode = st.radio(
+            "start",
+            options=list(START_MODES),
+            index=list(START_MODES).index(DEFAULT_START_MODE),
+            horizontal=True,
+            help=(
+                "warm: one excluded warm-up request loads the model before the timed run. "
+                "cold: the model is unloaded first; the first request pays the load, its latency is "
+                "excluded from the latency statistics and reported as cold start."
+            ),
+        )
+
+    others = other_loaded_models(loaded_models(), selected_model)
+    unload_others = DEFAULT_UNLOAD_OTHER_MODELS
+    if others:
+        st.warning(
+            "Other models are loaded in Ollama: " + ", ".join(others) + ". They change the measured "
+            "memory and latency of this run."
+        )
+        unload_others = st.checkbox(
+            "unload other models before the run (recommended)", value=DEFAULT_UNLOAD_OTHER_MODELS
+        )
+
     col_btn, _ = st.columns([1, 2])
     with col_btn:
         start_btn = st.button(
@@ -82,7 +114,9 @@ def render_evaluation_runner(
         # the script (Streamlit raises inside the running script) never leaves the
         # button disabled for the rest of the session.
         try:
-            _execute_run(selected_model, df_eval, num_gpu, mode_display_name, prompt_variant)
+            _execute_run(
+                selected_model, df_eval, num_gpu, mode_display_name, prompt_variant, start_mode, unload_others
+            )
         except Exception as exc:  # noqa: BLE001 - shown to the user, then logged
             logger.exception("Evaluation run failed")
             st.error(f"Evaluation failed: {exc}")
@@ -96,6 +130,8 @@ def _execute_run(
     num_gpu: int | None,
     mode_display_name: str,
     prompt_variant: str,
+    start_mode: str = DEFAULT_START_MODE,
+    unload_others: bool = DEFAULT_UNLOAD_OTHER_MODELS,
 ) -> None:
     """Run one evaluation with live telemetry, then build, store and save the report."""
     progress_bar = st.progress(0, text="Loading model into memory (cold start, excluded from latency)...")
@@ -169,6 +205,8 @@ def _execute_run(
         num_gpu=num_gpu,
         progress_callback=progress_callback,
         prompt_variant=prompt_variant,
+        start_mode=start_mode,
+        unload_other_models=unload_others,
     )
 
     st.session_state["evaluation_run"] = eval_run
@@ -193,4 +231,6 @@ def _execute_run(
     st.session_state["loaded_filename"] = new_filename
 
     progress_bar.progress(1.0, text="Evaluation completed.")
+    if eval_run.power_changed or eval_run.on_battery_during_run:
+        st.warning("The laptop was not on AC power for the whole run; CPU latency may be affected.")
     st.success(f"Evaluation session completed. Report saved to: {filepath}")

@@ -97,4 +97,4 @@ def test_run_evaluation_end_to_end(fake_ollama, toy_df):
     assert run.model_size_bytes == 986_000_000  # exact match, not qwen2.5:7b
     # warm-up request + 12 evaluation requests
     assert len(fake_ollama.generate_calls()) == 13
-    assert run.cold_start_s == pytest.approx(0.005)
+    assert run.cold_start_s == pytest.approx(2.0)  # the warm-up request loaded the model

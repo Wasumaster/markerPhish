@@ -98,3 +98,44 @@ def test_results_tab_marks_legacy_runs(app):
 
     text = " ".join(re.sub(r"<[^>]+>", " ", m.value) for m in app.tabs[2].markdown)
     assert "legacy protocol (protocol 1)" in text
+
+
+def test_run_tab_warns_about_other_loaded_models(fake_ollama, legacy_results_dir):
+    fake_ollama.load("llama3.1:8b")
+    at = AppTest.from_file(APP, default_timeout=120)
+    at.run()
+    assert not at.exception
+    assert any("Other models are loaded" in w.value and "llama3.1:8b" in w.value for w in at.warning)
+    box = next(c for c in at.checkbox if c.label.startswith("unload other models"))
+    assert box.value is True
+    assert next(r for r in at.radio if r.label == "start").value == "warm"
+
+
+def test_results_tab_shows_power_warning_and_resources(fake_ollama, legacy_results_dir, toy_df, monkeypatch):
+    import re
+
+    from backend import evaluator
+    from backend.profiler import ResourceSampler
+    from backend.run_report import build_run_report
+    from backend.sampling import balanced_sample
+    from backend.utils import save_results
+
+    states = iter([{"on_ac_power": True}, {"on_ac_power": False}])
+    monkeypatch.setattr(evaluator, "power_state", lambda: next(states))
+    sample = balanced_sample(toy_df.assign(source_id=[f"t:{i}" for i in toy_df["id"]]), 20)
+    run = evaluator.run_evaluation(
+        "qwen2.5:1.5b", sample.df, num_gpu=0, prompt_variant="zeroshot", tree_rss_reader=lambda: 10.0,
+        sampler_factory=lambda m: ResourceSampler(m, interval_s=0.01, gpu_reader=lambda: (None, None),
+                                                  power_reader=lambda: None),
+    )
+    report = build_run_report(run, df_sample=sample.df, dataset_choice="seed+sms", sample_info=sample.info,
+                              code={"commit": None, "dirty": None, "changed_files": None})
+    path = save_results(report, "qwen2.5:1.5b", prompt_variant="zeroshot")
+    os.utime(path, (4_000_000_000, 4_000_000_000))
+
+    at = AppTest.from_file(APP, default_timeout=120)
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert any("AC power changed during this run" in w.value for w in at.tabs[2].warning)
+    text = " ".join(re.sub(r"<[^>]+>", " ", m.value) for m in at.tabs[2].markdown)
+    assert "model memory (Ollama)" in text and "fits laptop-8gb" in text

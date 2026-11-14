@@ -262,9 +262,13 @@ def compute_classification_metrics(
 
 def compute_resource_metrics(run: "EvaluationRun") -> dict:
     """
-    Compute resource-related metrics from an evaluation run.
+    Latency and throughput of an evaluation run.
+
+    In cold-start mode the first request also loaded the model: its latency is
+    excluded here and reported as cold_start_s (its prediction still counts in
+    the detection metrics).
     """
-    latencies = [r.latency_seconds for r in run.results]
+    latencies = [r.latency_seconds for r in run.results if not getattr(r, "is_cold_request", False)]
 
     if latencies:
         lat_array = np.array(latencies)
@@ -291,8 +295,10 @@ def compute_resource_metrics(run: "EvaluationRun") -> dict:
         "max_latency_s": round(max_lat, 4),
         "p95_latency_s": round(p95_lat, 4),
         "throughput_msgs_per_min": round(throughput, 2),
-        # Model load time measured by the warm-up request (excluded from latencies)
+        # Model load time: warm-up request (warm) or the first request's load_duration (cold)
         "cold_start_s": round(float(getattr(run, "cold_start_s", 0.0) or 0.0), 3),
+        "start_mode": getattr(run, "start_mode", "warm"),
+        "latency_excluded_cold_requests": sum(1 for r in run.results if getattr(r, "is_cold_request", False)),
     }
 
 
@@ -363,6 +369,8 @@ def build_full_report(
                 "is_correct_channel": r.true_label == r.predicted_label,
                 "raw_response": r.raw_response,
                 "latency_s": round(r.latency_seconds, 4),
+                "is_cold_request": getattr(r, "is_cold_request", False),
+                "load_duration_s": getattr(r, "load_duration_s", 0.0),
             }
             for r in run.results
         ],

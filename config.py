@@ -171,7 +171,12 @@ def binary_to_channel_label(binary: str | None, channel: str | None) -> str:
 # ──────────────────────────────────────────────
 # Ollama configuration
 # ──────────────────────────────────────────────
-OLLAMA_BASE_URL = "http://localhost:11434"
+# 127.0.0.1, not "localhost": on Windows "localhost" resolves to IPv6 ::1 first,
+# Ollama listens on IPv4 only, and every request then waits ~2 s for the
+# fallback (measured 2026-11-14: 2,055-2,074 ms vs 4-28 ms per /api/ps call).
+# That delay would be added to every measured latency. Override with the
+# MARKERPHISH_OLLAMA_URL environment variable for a remote or non-default server.
+OLLAMA_BASE_URL = os.environ.get("MARKERPHISH_OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 OLLAMA_GENERATE_ENDPOINT = f"{OLLAMA_BASE_URL}/api/generate"
 OLLAMA_TAGS_ENDPOINT = f"{OLLAMA_BASE_URL}/api/tags"
 OLLAMA_SHOW_ENDPOINT = f"{OLLAMA_BASE_URL}/api/show"
@@ -244,6 +249,48 @@ OLLAMA_TOP_P = 1.0
 # Default generation budget (that of the active prompt variant). Each variant
 # defines its own num_predict in PROMPT_VARIANTS.
 OLLAMA_NUM_PREDICT = PROMPT_VARIANTS[ACTIVE_PROMPT_VARIANT]["num_predict"]
+
+# ──────────────────────────────────────────────
+# Start mode and resource profiling
+# ──────────────────────────────────────────────
+# warm: one excluded warm-up request loads the model before the timed run.
+# cold: the model is unloaded first (keep_alive 0, polled on /api/ps until gone);
+#       the first evaluation request pays the load. Its latency is excluded from
+#       the latency statistics and reported as cold_start_s; its prediction counts.
+START_MODES = ("warm", "cold")
+DEFAULT_START_MODE = "warm"
+COLD_UNLOAD_TIMEOUT_S = 30
+# Unload every other loaded model before a run (recommended): other models in
+# memory change both the measured memory and the latency.
+DEFAULT_UNLOAD_OTHER_MODELS = True
+
+# ──────────────────────────────────────────────
+# Constraint profiles (resource-constrained deployment targets)
+# ──────────────────────────────────────────────
+# Share of a machine's RAM that the model may use. The rest is for the operating
+# system, the application around the model, other user programs and the page
+# cache. Basis (reference laptop, 2026-11-14): of a nominal 16 GB only 13.85 GB
+# are usable (the integrated GPU reserves the rest), and with ordinary desktop
+# programs open and no model loaded 9.4 GB are in use; Windows 11 alone needs
+# roughly 3-4 GB at idle. Half the RAM for the model is therefore a realistic,
+# not a pessimistic, budget. The primary criterion is the model memory reported
+# by Ollama (/api/ps size); peak process-tree RSS is reported alongside.
+MEMORY_HEADROOM_FACTOR = 0.5
+CONSTRAINT_PROFILES = {
+    "laptop-8gb": {
+        "description": "Laptop with 8 GB RAM and no dedicated GPU (CPU-only inference).",
+        "ram_gb": 8,
+        "gpu": False,
+        "max_p95_latency_s": None,  # optional latency limit (P95 <= X s); None = no limit
+    },
+    "laptop-16gb": {
+        "description": "Laptop with 16 GB RAM and no dedicated GPU (CPU-only inference).",
+        "ram_gb": 16,
+        "gpu": False,
+        "max_p95_latency_s": None,
+    },
+}
+DEFAULT_CONSTRAINT_PROFILES = ["laptop-8gb", "laptop-16gb"]
 
 # ──────────────────────────────────────────────
 # Sample-size presets

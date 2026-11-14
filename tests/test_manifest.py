@@ -146,7 +146,8 @@ def test_run_report_contains_a_complete_manifest(fake_ollama, sample):
     assert m["inference"]["options_changed_requests"] == 0
     assert m["software"]["ollama_version"] == "0.40.13"
     assert m["software"]["code"]["commit"] == "deadbeef"
-    assert set(m["power"]) == {"on_ac_power", "battery_percent", "power_plan", "power_mode"}
+    assert set(m["power"]) == {"power_at_start", "power_at_end", "power_changed", "on_battery_during_run"}
+    assert set(m["power"]["power_at_start"]) == {"on_ac_power", "battery_percent", "power_plan", "power_mode"}
     started, ended = m["timestamps"]["started_at"], m["timestamps"]["ended_at"]
     assert started <= ended and ("+" in started or "-" in started[10:])  # has a timezone offset
     # every request carried the seed

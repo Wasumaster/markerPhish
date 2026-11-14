@@ -36,6 +36,14 @@ def _block_real_http(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_process_scan(monkeypatch):
+    """The profiler never reads the machine's real process list in unit tests."""
+    from backend import profiler
+
+    monkeypatch.setattr(profiler, "list_processes", lambda: [])
+
+
+@pytest.fixture(autouse=True)
 def _clear_evaluator_caches():
     """The evaluator caches per-model capabilities; isolate tests from each other."""
     from backend import evaluator

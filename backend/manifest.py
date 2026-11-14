@@ -298,7 +298,7 @@ def build_manifest(
     request_fields: dict,
     started_at: str,
     ended_at: str,
-    power_at_start: dict | None = None,
+    power: dict | None = None,
     model: dict | None = None,
     code: dict | None = None,
     ollama: str | None = None,
@@ -341,7 +341,8 @@ def build_manifest(
             "python_version": platform.python_version(),
             "os": platform.platform(),
         },
-        "power": power_at_start if power_at_start is not None else power_state(),
+        # power_at_start / power_at_end / power_changed / on_battery_during_run
+        "power": power if power is not None else {"power_at_start": power_state()},
         "timestamps": {"started_at": started_at, "ended_at": ended_at},
     }
 
@@ -416,7 +417,8 @@ def manifest_summary(manifest: dict) -> list[tuple[str, str]]:
     model = manifest.get("model") or {}
     sw = manifest.get("software") or {}
     code = sw.get("code") or {}
-    power = manifest.get("power") or {}
+    power_block = manifest.get("power") or {}
+    power = power_block.get("power_at_start") or power_block  # (Phase-3 dev runs stored one flat dict)
     ts = manifest.get("timestamps") or {}
     plan = power.get("power_plan") or {}
     cells = ds.get("cells") or []
@@ -440,6 +442,23 @@ def manifest_summary(manifest: dict) -> list[tuple[str, str]]:
         ("ollama", _fmt(sw.get("ollama_version"))),
         ("code", f"{_fmt(code.get('commit'))}" + (" (uncommitted changes)" if code.get("dirty") else "")),
         ("python / os", f"{_fmt(sw.get('python_version'))} · {_fmt(sw.get('os'))}"),
-        ("power", f"AC: {_fmt(power.get('on_ac_power'))} · plan: {_fmt(plan.get('name'))} · mode: {_fmt(power.get('power_mode'))}"),
+        ("power at start", f"AC: {_fmt(power.get('on_ac_power'))} · plan: {_fmt(plan.get('name'))} · mode: {_fmt(power.get('power_mode'))}"),
+        ("power at end", f"AC: {_fmt((power_block.get('power_at_end') or {}).get('on_ac_power'))}"),
+        ("power changed during run", _fmt(power_block.get("power_changed"))),
         ("started / ended", f"{_fmt(ts.get('started_at'))} / {_fmt(ts.get('ended_at'))}"),
     ]
+
+
+def report_power_warning(report: dict) -> str | None:
+    """A warning text when the run was not on AC power the whole time, else None."""
+    power = ((report or {}).get("manifest") or {}).get("power") or {}
+    start = (power.get("power_at_start") or {}).get("on_ac_power")
+    end = (power.get("power_at_end") or {}).get("on_ac_power")
+    if power.get("power_changed"):
+        return (
+            f"AC power changed during this run (at start: {_fmt(start)}, at end: {_fmt(end)}). "
+            "On a laptop the CPU clock depends on the power source, so latency is not comparable."
+        )
+    if power.get("on_battery_during_run"):
+        return "This run ran on battery power. On a laptop this lowers CPU clocks, so latency is not comparable."
+    return None

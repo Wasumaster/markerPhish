@@ -10,8 +10,8 @@ If a session restarts, resume from the first unchecked phase below.
 | 0. Plan | approved 2026-11-14 |
 | 1. Bugs, hygiene, tests | done 2026-11-14 |
 | 2. Data preprocessing | done 2026-11-14 (incl. addendum 2a, committed) |
-| 3. Reproducibility manifest | done 2026-11-14, awaiting "continue" |
-| 4. Resource profiling | not started |
+| 3. Reproducibility manifest | done 2026-11-14 (committed) |
+| 4. Resource profiling | done 2026-11-14, awaiting "continue" |
 | 5. Metrics | not started |
 | 5b. Inference options | not started |
 | 6. Batch mode, then STOP: pilot can start | not started |
@@ -38,6 +38,7 @@ Rules per phase: run tests, AppTest every tab, update this file, report, wait fo
 5. Context budget: num_ctx includes the output. Verify longest input (fewshotcot template + header + max body) + num_predict fits num_ctx with margin; set body limit and num_predict from that. Keep the per-request prompt_eval_count check.
 6. Manifest records AC vs battery power and the active Windows power plan/mode (null if unreadable). Batch CLI warns before starting on battery.
 8. (after 2a) Context margin accepted as is: worst case 8.4% spare on phi3.5 + Phase 5b per-request prompt_eval_count guard. Phase 10 must document LINKS_MIN_BODY_CHARS, LINKS_MOVED_MAX_CHARS, the 9 emails that still lose links, and the 8.4% worst-case margin in OVERVIEW.md.
+10. (after Phase 3) Reproduce button skipped. Power state read at run start AND end (batch: also between cells); store power_at_start, power_at_end; power_changed true if AC was lost at any point; warning in Results; batch CLI logs it per cell.
 9. Phase 5b: measure real fewshotcot output lengths on all 5 models; if the needed cap > 256, raise OLLAMA_NUM_PREDICT_CAP, let MESSAGE_MAX_CHARS recalculate, re-run the budget test, report new truncation rates, AND re-run the phi3.5 check on the most link-dense emails and report the worst-case margin. Must be final before the pilot; flag clearly in the 5b report.
 7. Accepted as proposed: pilot noise accepted (main study on idle machine); results dir env override + README note to pause OneDrive; seed+sms recommended over "all"; metrics_version + recompute-on-load for v2; num_ctx 4096 with ~4,000-char body limit (to be verified), 3 chars/token estimate; num_predict measured in a Phase 5b dev run, one cap for all variants; num_thread from runner `--threads` else null; YAML experiment files; dedup on full model input before truncation; single-channel choices balance over 2 cells; largest-remainder order phishing email, valid email, smishing SMS, valid SMS.
 
@@ -70,15 +71,18 @@ Rules per phase: run tests, AppTest every tab, update this file, report, wait fo
 - [ ] (optional) Reproduce button — not done, awaits confirmation
 
 ### Phase 4: resource profiling
-- [ ] Ollama process-tree matching
-- [ ] ResourceSampler (0.5 s; RSS, CPU %, NVML; /api/ps every 2 s; sampler cost)
-- [ ] warm / cold start
-- [ ] baseline + pre-warm-up RAM
-- [ ] loaded-models pre-run check, unload option
-- [ ] resources block + samples
-- [ ] hardware block (extends HardwareProfile)
-- [ ] constraint profiles + headroom factor + fits_profile
-- [ ] nvidia-ml-py in requirements
+- [x] Ollama process-tree matching
+- [x] ResourceSampler (0.5 s; RSS, CPU %, NVML; /api/ps every 2 s; sampler cost)
+- [x] warm / cold start
+- [x] baseline + pre-warm-up RAM
+- [x] loaded-models pre-run check, unload option
+- [x] resources block + samples
+- [x] hardware block (extends HardwareProfile)
+- [x] constraint profiles + headroom factor + fits_profile
+- [x] nvidia-ml-py in requirements
+
+- [x] power at start / end / during sampling, power_changed, Results warning (user addition after Phase 3; batch per-cell logging in Phase 6)
+- [x] Ollama URL 127.0.0.1 (found: localhost adds ~2 s per request on Windows)
 
 ### Phase 5: metrics
 - [ ] "excluding unknown" and "unknown = error" sets
@@ -217,3 +221,34 @@ Deviations:
 Open issues:
 - (optional) Reproduce button: not built; needs confirmation.
 - hardware_profile is still the session-start scan (audit #23); Phase 4 replaces it with a per-run hardware block.
+
+### Phase 4 (2026-11-14)
+Done:
+- `backend/profiler.py`: process matching (`select_server_roots`: ollama* with "serve" in the command line, not the tray app; fallback: ollama* processes whose parent is not ollama*; lowercase names), `descendants` (recursive), `OllamaTree` (full scan once, then `children(recursive=True)` per sample; rescan only if the root is gone, max every 10 s), `TreeReader` (RSS sum, CPU % / logical cores, kept psutil.Process objects for continuous CPU counters), `_Nvml` (pynvml; silent None without driver), `ResourceSampler` (daemon thread, 0.5 s; /api/ps every 2 s for peak size / size_vram; AC power every 5 s; sampler_cost_ms per cycle; baseline = synchronous first sample), `ollama_ps`, `read_tree_rss_mb`.
+- `backend/profiles.py`: `fits_profiles` (budget = ram_gb x 1024 x MEMORY_HEADROOM_FACTOR; primary = /api/ps model memory; peak RSS alongside; optional P95 limit; flag when measured with GPU offload on a no-GPU profile).
+- config: `START_MODES`, `DEFAULT_START_MODE="warm"`, `COLD_UNLOAD_TIMEOUT_S=30`, `DEFAULT_UNLOAD_OTHER_MODELS=True`, `MEMORY_HEADROOM_FACTOR=0.5` (justified in the comment), `CONSTRAINT_PROFILES` laptop-8gb / laptop-16gb (no GPU, no latency limit), `DEFAULT_CONSTRAINT_PROFILES`; `OLLAMA_BASE_URL` = 127.0.0.1 (env override `MARKERPHISH_OLLAMA_URL`).
+- evaluator: `loaded_models`, `unload_model`, `wait_until_unloaded`, `other_loaded_models`, `prepare_ollama`, `power_changed`; `run_evaluation(start_mode, unload_other_models, sampler_factory, tree_rss_reader)`: pre-run check -> unload others -> pre_warmup_ram_mb -> warm-up (warm) or unload + wait (cold) -> sampler around the timed requests -> power at end. Cold: first request flagged `is_cold_request`, `cold_start_s` = its load_duration, latency excluded (`latency_excluded_cold_requests`), prediction counted.
+- hardware: `HardwareProfile` + os_version, python_version, ollama_version, scanned_at; `hardware_block()` per run (fixes audit #23). Report: `hardware` block; `hardware_profile` key kept (now the same per-run scan).
+- run_report: `resources` block (all requested fields + model_disk_mb, ps_polls, sampler_cost_max_ms, max_tree_processes, cold_unload_confirmed, other_models_unloaded / _unload_failed, fits_profile, samples). manifest `power` = {power_at_start, power_at_end, power_changed, on_battery_during_run}.
+- UI: Run tab start select (warm/cold), loaded-models warning + "unload other models before the run (recommended)" checkbox, power warning after a run; Results: power warning, "Resources" table (incl. fits per profile), hardware expander with versions.
+- requirements: nvidia-ml-py==13.615.71.
+- Tests: `tests/test_profiler.py` (31) + 2 AppTests; fake Ollama now tracks loaded models (/api/ps, keep_alive 0, load_duration). 186 tests pass (stable over 3 runs); backend+config coverage 91%.
+
+Real checks (qwen2.5:1.5b, zeroshot, 20 records, CPU):
+- Found: requests to "localhost" took ~2.05 s each (IPv6 ::1 tried first; Ollama listens on 127.0.0.1 only) vs 4-28 ms to 127.0.0.1. Every latency measured before this fix (incl. all 6 legacy runs and earlier dev runs) contains ~2 s of connection delay per message. After the fix: wall time 95 s -> 51 s, mean latency ~4.7 s -> 2.55 s, p95 8.13 -> 5.65 s, mean Ollama CPU 27.7% -> 49.0%, identical predictions (F1 0.8182).
+- Found: re-resolving the tree with a full process scan cost ~2.2 s per sample (Windows command lines). After OllamaTree: 38 ms per sample (max 250 ms), 103 samples in 51 s.
+- Warm with llama3.2 pre-loaded: other model detected and unloaded; pre_warmup RSS 27 MB (idle server), baseline 1,150 MB, peak RSS 1,237 MB, model memory (/api/ps) 1,119 MB, file 940 MB, CPU peak 51% (8 of 16 logical threads), fits both profiles.
+- Cold: unload confirmed, first request 8.37 s excluded, cold_start_s 2.74.
+- Runner command line: `llama-server.exe --model <blob> --port <n>`, no --threads -> resolved num_thread will be null (Phase 5b).
+- Test JSONs in the scratchpad only; results/ untouched (6 legacy files).
+
+Deviations:
+- resources.model_size_mb is the /api/ps memory (as specified); the file size moved to resources.model_disk_mb. The old resource_metrics.model_size_mb (disk size) is unchanged for compatibility.
+- baseline_ram_mb is sampled right before the first evaluation request: in warm mode the model is already loaded (~1.1 GB), in cold mode it is not (~27 MB). pre_warmup_ram_mb is the server before the model load in both modes.
+- AC power is also polled by the sampler (every 5 s), so a power loss in the middle of a run is caught, not only at start/end.
+- The process tree includes conhost.exe children of the runner (all descendants, as specified; a few MB).
+- Ollama URL changed to 127.0.0.1 (not in the prompt; necessary, see above).
+
+Open issues:
+- Sampler overhead: 38 ms per 0.5 s on one core = ~0.5% of the machine (16 threads); reported per run as sampler_cost_ms.
+- Phase 9 will extend the Results/Compare resource display (time-series chart etc.).

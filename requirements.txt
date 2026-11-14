@@ -20,3 +20,6 @@ requests==2.34.2
 
 # Resource monitoring
 psutil==7.2.2
+# NVIDIA VRAM / GPU utilisation (NVML). Optional at runtime: without an NVIDIA
+# driver the profiler records null VRAM values and carries on.
+nvidia-ml-py==13.615.71

@@ -74,6 +74,12 @@ class FakeOllama:
     calls: list[tuple[str, str, dict | None]] = field(default_factory=list)
     eval_count: int = 6
     prompt_eval_count: int = 900
+    # Loaded models (name -> /api/ps entry). A generate request loads its model;
+    # keep_alive 0 unloads it. unload_ignored keeps a model loaded (timeout tests).
+    loaded: dict = field(default_factory=dict)
+    unload_ignored: set = field(default_factory=set)
+    load_ns: int = 2_000_000_000
+    vram_bytes: int = 0
 
     # ── routing ──
     def get(self, url: str, *args, **kwargs) -> FakeResponse:
@@ -92,7 +98,7 @@ class FakeOllama:
         if path == "/api/version":
             return FakeResponse({"version": self.version})
         if path == "/api/ps":
-            return FakeResponse({"models": []})
+            return FakeResponse({"models": list(self.loaded.values())})
         if path == "/api/show":
             return FakeResponse(self._show(body or {}))
         if path == "/api/generate":
@@ -111,9 +117,20 @@ class FakeOllama:
             "model_info": {f"{family}.context_length": 32768, "general.parameter_count": 1_543_714_304},
         }
 
+    def load(self, name: str) -> None:
+        size = next((m["size"] for m in self.models if m["name"] == name), 1_000_000_000)
+        self.loaded[name] = {"name": name, "model": name, "size": int(size * 1.3), "size_vram": self.vram_bytes}
+
     def _generate(self, body: dict) -> dict:
         prompt = body.get("prompt", "")
         model = body.get("model", "")
+        if body.get("keep_alive") == 0 and "prompt" not in body:
+            if model not in self.unload_ignored:
+                self.loaded.pop(model, None)
+            return {"model": model, "response": "", "done": True, "done_reason": "unload"}
+        was_loaded = model in self.loaded
+        if not was_loaded:
+            self.load(model)
         if self.responder is not None:
             text = self.responder(model, prompt, body)
         else:
@@ -124,7 +141,7 @@ class FakeOllama:
             "done": True,
             "done_reason": "stop",
             "total_duration": 1_200_000_000,
-            "load_duration": 5_000_000,
+            "load_duration": 5_000_000 if was_loaded else self.load_ns,
             "prompt_eval_count": self.prompt_eval_count,
             "prompt_eval_duration": 900_000_000,
             "eval_count": self.eval_count,

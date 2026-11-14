@@ -37,6 +37,10 @@ class HardwareProfile:
     is_pascal_or_older: bool = False
     recommended_mode: Literal["cpu", "gpu"] = "cpu"
     recommendation_reason: str = ""
+    os_version: str = ""
+    python_version: str = ""
+    ollama_version: str | None = None
+    scanned_at: str = ""  # ISO 8601; ram_available_gb is the free RAM at this moment
 
     def to_dict(self) -> dict:
         """Serialize hardware profile for persistence in evaluation reports."""
@@ -114,6 +118,28 @@ def _detect_gpu() -> dict:
         return {"detected": False, "reason": str(e)}
 
 
+def _software_fields() -> dict:
+    from datetime import datetime
+
+    return {
+        "os_version": platform.platform(),
+        "python_version": platform.python_version(),
+        "scanned_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+
+
+def hardware_block(ollama_version: str | None = None) -> dict:
+    """
+    Fresh hardware scan for a run's report ("hardware" block): CPU model,
+    physical / logical cores, total and currently free RAM, GPU name and total
+    VRAM (if any), OS, Python and Ollama version. Taken at run start, so free
+    RAM describes the run, not the session start.
+    """
+    profile = scan_hardware()
+    profile.ollama_version = ollama_version
+    return profile.to_dict()
+
+
 def scan_hardware() -> HardwareProfile:
     """
     Scan host hardware configuration and determine optimal inference execution settings.
@@ -140,6 +166,7 @@ def scan_hardware() -> HardwareProfile:
             has_gpu=False,
             recommended_mode="cpu",
             recommendation_reason="No dedicated NVIDIA GPU detected. Standard multi-threaded CPU execution enabled.",
+            **_software_fields(),
         )
 
     # GPU detected
@@ -186,6 +213,7 @@ def scan_hardware() -> HardwareProfile:
         is_pascal_or_older=is_pascal_or_older,
         recommended_mode=recommended_mode,
         recommendation_reason=reason,
+        **_software_fields(),
     )
 
 
