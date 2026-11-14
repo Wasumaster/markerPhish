@@ -19,6 +19,7 @@ from backend.utils import (
     report_prompt_variant,
 )
 from config import LEGACY_PROMPT_VARIANT
+from frontend.recommendation import render_recommendation
 from ui.components import (
     DASH,
     best_flags,
@@ -304,6 +305,8 @@ def render_multi_comparison_view() -> None:
         file_name="markerphish_multi_model_benchmark.csv",
         mime="text/csv",
     )
+
+    render_recommendation({f: ensure_report_compatibility(reports[f]) for f in selected_files if reports.get(f)})
 
     # ──────────────────────────────────────────────
     # 3. Trade-off charts

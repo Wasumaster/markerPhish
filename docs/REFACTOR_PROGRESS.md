@@ -15,8 +15,8 @@ If a session restarts, resume from the first unchecked phase below.
 | 5. Metrics | done 2026-11-14 (autonomous, committed) |
 | 5b. Inference options | done 2026-11-14 (autonomous, committed) |
 | 6. Batch mode | done 2026-11-14 (autonomous, committed); pilot NOT run (session rule 2) |
-| 7. Optimum analysis | in progress (autonomous) |
-| 8. Non-LLM baseline | not started |
+| 7. Optimum analysis | done 2026-11-14 (autonomous, committed) |
+| 8. Non-LLM baseline | in progress (autonomous) |
 | 9. UI | not started |
 | 10. Documentation | not started |
 | Final report | not started |
@@ -65,6 +65,11 @@ D24. Battery: warning only. What: the CLI prints a warning when on battery and c
 D25. Results directory override. What: MARKERPHISH_RESULTS_DIR (env) moves results/ (accepted in the plan for OneDrive). save_results never overwrites: same-second names are moved forward by one second. Revert: config.RESULTS_DIR, utils.save_results.
 D26. Time estimate. What: mean latency of earlier protocol-2, non-inflated runs of the same model + variant x sample size; otherwise the slowest measured variant of the same model; otherwise 5 s per record ("rough"). Revert: experiment.estimate_seconds.
 D27. DEV_BUILD = False at the end of Phase 6 (as specified): runs from now on are protocol 2 and not dev, also those the user makes in the UI.
+D28. Reference sample of the recommendation. What: among the eligible runs (protocol 2, not dev, some valid prediction, has a fingerprint), the dataset_fingerprint shared by most runs is the reference (ties: the most recent run's); runs on other fingerprints are listed as excluded. Alternative: let the user pick the fingerprint. Revert: optimum.eligibility.
+D29. Candidate set = the runs selected in Compare (default: all). The user controls what is compared; excluded runs are listed with reasons.
+D30. Profiles editable per session (RAM GB, P95 limit, headroom factor) in a Compare expander; defaults stay in config.CONSTRAINT_PROFILES; nothing is written to disk. Alternative: persist edits to a JSON file. Revert: frontend/recommendation._edit_profiles.
+D31. Holm scope. What: in the recommendation, Holm adjusts the winner-vs-other comparisons of one profile (as specified); the pairwise table adjusts over all pairs shown. Significance level 0.05 (optimum.ALPHA).
+D32. Pareto. What: non-domination over the three criteria (F1 unknown = error, /api/ps model memory, P95); runs missing a value are not placed. The chart shows F1 vs memory with Pareto points filled and the others open, plus one dashed budget line per profile; one ink colour for all runs (scales to any number of models).
 D11. Optional items skipped: base-rate precision, cost-weighted error, logprob scores / ROC / PR (session rule 1).
 
 ## Checklist
@@ -155,7 +160,13 @@ D11. Optional items skipped: base-rate precision, cost-weighted error, logprob s
 - [ ] 50-record smoke batch — NOT run (session rule 2); replaced by mocked end-to-end batch tests + a real --dry-run (0 inference requests), see D20
 - [x] STOP for the pilot — superseded by the autonomous session rules (no pilot is run)
 
-### Phases 7-10, final report
+### Phase 7: optimum analysis
+- [x] profiles editable in the UI (session)
+- [x] backend/optimum.py: Pareto front, per-profile feasible runs + winner (ties: memory, latency), McNemar winner vs others with Holm
+- [x] eligibility: protocol 2, not dev, matching fingerprint; excluded listed with reasons
+- [x] Compare: Recommendation section, Pareto scatter with budget lines, pairwise McNemar table; existing scatters kept
+
+### Phases 8-10, final report
 See `docs/REFACTOR_TASK.md`; items are added here when the phase starts.
 
 ## Phase log
@@ -328,4 +339,7 @@ Done:
 - `backend/batch.py`: CLI `python -m backend.batch <file> [--dry-run]` (plan + estimate + battery warning; resumable; failure-tolerant; console + log file progress with ETA; per-cell power; summary JSON).
 - config: DEV_BUILD = False; MARKERPHISH_RESULTS_DIR. utils.save_results unique names. requirements: PyYAML==6.0.3. README: batch mode + overnight on Windows.
 - Tests: tests/test_batch.py (25). 267 tests pass. Live AppTest: 4 tabs, no errors, nothing loaded. Real check: dry run only (D20).
+
+### Phase 7 (2026-11-14, autonomous)
+Done: backend/optimum.py (eligibility, run_point, pareto_front, analyze, pairwise_pvalues); frontend/recommendation.py (editable profiles, recommendation table with CI and "not significantly different" alternatives + caveat, Pareto scatter with dashed budget lines, pairwise McNemar table, excluded runs); wired into Compare after the summary table. Tests: tests/test_optimum.py (12: eligibility reasons, reference fingerprint, Pareto incl. ties, per-profile winner, feasibility, latency limit, tie-breaking, unknown = error ranking, Holm, differing options, 30 models, empty input) + 1 AppTest (3 fake models -> recommendation per profile, 6 legacy runs excluded, profile edit changes the budget). 280 tests pass.
 

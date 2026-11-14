@@ -223,3 +223,52 @@ def test_end_to_end_run_from_the_ui(fake_ollama, results_dir):
     assert at.session_state["loaded_filename"] == files[0]
     assert at.session_state["is_running"] is False
 
+
+def _save_fake_runs(fake_ollama, toy_df, accuracies):
+    """One protocol-2 run per (model, share of correct answers), all on the same sample."""
+    import json as _json
+
+    from backend.evaluator import run_evaluation
+    from backend.profiler import ResourceSampler
+    from backend.run_report import build_run_report
+    from backend.sampling import balanced_sample
+    from backend.utils import save_results
+
+    sample = balanced_sample(toy_df.assign(source_id=[f"t:{i}" for i in toy_df["id"]]), 40)
+    truth = {r.text: r.true_label for r in sample.df.itertuples()}
+    texts = list(truth)
+    for model, share in accuracies.items():
+        right = set(texts[: int(len(texts) * share)])
+
+        def responder(m, prompt, body, right=right):
+            message = prompt.split("<message>")[-1].split("</message>")[0].strip()
+            malicious = truth.get(message) in ("phishing", "smishing")
+            if message not in right:
+                malicious = not malicious
+            return _json.dumps({"label": "malicious" if malicious else "valid"})
+
+        fake_ollama.responder = responder
+        run = run_evaluation(model, sample.df, num_gpu=0, prompt_variant="zeroshot", tree_rss_reader=lambda: 1.0,
+                             sampler_factory=lambda m: ResourceSampler(m, interval_s=0.01, gpu_reader=lambda: (None, None),
+                                                                        power_reader=lambda: True))
+        report = build_run_report(run, df_sample=sample.df, dataset_choice="seed+sms", sample_info=sample.info,
+                                  code={"commit": None, "dirty": None, "changed_files": None})
+        save_results(report, model, prompt_variant="zeroshot")
+
+
+def test_compare_recommends_per_profile(fake_ollama, legacy_results_dir, toy_df):
+    _save_fake_runs(fake_ollama, toy_df, {"acme-small:1b": 0.9, "acme-small:7b": 0.95, "zeta-chat:latest": 0.6})
+    at = AppTest.from_file(APP, default_timeout=120)
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    text = _tab_text(at, 3)
+    assert "Recommendation" in text and "laptop-8gb" in text and "laptop-16gb" in text
+    assert "acme-small:7b [zeroshot]" in text  # the most accurate model fits both budgets
+    assert "not significantly different" in text
+    assert "runs excluded from the recommendation (6)" in " ".join(e.label for e in at.tabs[3].expander)
+    assert len(at.tabs[3].get("plotly_chart")) >= 3
+
+    # editing a profile changes its budget
+    at.number_input(key="prof_ram_laptop-8gb").set_value(2.0).run()
+    assert "1,024.0 MB" in _tab_text(at, 3)  # 2 GB x headroom 0.5
+
