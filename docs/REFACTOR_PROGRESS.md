@@ -18,8 +18,8 @@ If a session restarts, resume from the first unchecked phase below.
 | 7. Optimum analysis | done 2026-11-14 (autonomous, committed) |
 | 8. Non-LLM baseline | done 2026-11-14 (autonomous, committed) |
 | 9. UI | done 2026-11-14 (autonomous, committed) |
-| 10. Documentation | in progress (autonomous) |
-| Final report | not started |
+| 10. Documentation | done 2026-11-14 (autonomous, committed) |
+| Final report | in progress (autonomous) |
 
 Rules per phase: run tests, AppTest every tab, update this file, report, wait for "continue". Never commit.
 
@@ -82,6 +82,8 @@ D41. Compare columns. What: model, quantization, prompt, options (only when opti
 D42. Charts scale. What: every Compare chart uses one ink colour (filled = may be best / Pareto, open = legacy / dev / dominated) and hover labels, no per-model colours or legend rows. The per-class bar chart keeps the three class colours of the design system.
 D43. Report loading cached per (results dir, file, mtime) in Compare and in the Run-tab estimate, so legacy runs are not re-bootstrapped on every rerun.
 D44. Results additions. What: "RAM / CPU over time" (process-tree RSS solid, CPU share dotted on a second axis; a note when a run has no samples) and ROC / precision-recall curves with AUC / AP for runs whose records carry a score (the baseline; LLM runs store hard labels, the optional log-prob scores were skipped).
+D45. Documentation rewritten, not patched. What: OVERVIEW.md and README.md were rewritten from scratch against the current code (the old texts described removed features: macro F1, weighted metrics, pie charts, KPI cards, "real-time" hardware detection, default model lists). tests/test_docs.py keeps key numbers (message limit, template length, chars per token, link limits, headroom, budgets, output cap, preprocessing version, 8.4% margin) in sync with config and the stale claims out. Revert: git history of OVERVIEW.md / README.md.
+D46. Installed RAM verified (Win32_PhysicalMemory: 16 GB installed, 13.85 GB visible), so "16 GB of which 13.85 GB usable" in config and docs is a measurement, not an assumption.
 D11. Optional items skipped: base-rate precision, cost-weighted error, logprob scores / ROC / PR (session rule 1).
 
 ## Checklist
@@ -190,8 +192,13 @@ D11. Optional items skipped: base-rate precision, cost-weighted error, logprob s
 - [x] Run: sample size (sidebar, D39) with per-cell counts, purpose label and estimated time; start select; loaded-models warning; advanced options; live ETA
 - [x] Dataset: preprocessing report (Phase 2)
 
-### Phase 10, final report
-See `docs/REFACTOR_TASK.md`.
+### Phase 10: documentation
+- [x] every audit documentation mismatch fixed (app.py:5; README rewritten; OVERVIEW rewritten: §8/§9 metrics, pie charts, KPI cards, "model size in memory")
+- [x] OVERVIEW: data pipeline, experiment design, manifest + reproduction, profiling + limitations, options, all metric formulas, batch, profiles + headroom + optimum rule, baseline caveat, protocol-2 schema, legacy protocol, latency-inflation paragraph, link limits + 9 emails + 8.4% margin, "Adding a new model"
+- [x] README: overview, setup, one evaluation, batch + overnight on Windows, links
+
+### Final report
+- [ ] written below and in chat
 
 ## Phase log
 
@@ -372,4 +379,7 @@ Done: backend/baseline.py (training_split, train, evaluate, build_baseline_repor
 
 ### Phase 9 (2026-11-14, autonomous)
 Done: backend/compare.py (hidden_reason, has_valid_predictions, visible_runs, comparison_row, build_comparison, best_values); frontend/multi_comparison.py rewritten on it (toggle, marks, footnotes, CSV, mixed-sample warning, cached loading, scatters, per-class); Results: resource timeline + score curves (backend.detection.score_curves); Run tab: purpose / per-cell / estimate rows (experiment.estimate_run_seconds, format_duration). Tests: tests/test_compare.py (5) + 5 AppTests + score_curves test. 296 tests pass; live AppTest: 4 tabs, no errors, nothing loaded.
+
+### Phase 10 (2026-11-14, autonomous)
+Done: OVERVIEW.md (16 sections, methodology with formulas and measured numbers), README.md, app.py docstring, tests/test_docs.py (19). 315 tests pass; coverage backend + config 92%. Live AppTest: 4 tabs, no errors, nothing loaded.
 

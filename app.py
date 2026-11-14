@@ -1,8 +1,9 @@
 """
 MarkerPhish — Main Application Entry Point
 ===========================================
-Streamlit dashboard for automated evaluation of large language models in
-phishing and smishing detection with concurrent hardware resource profiling.
+Streamlit app for the automated evaluation of local language models (via Ollama)
+in phishing and smishing detection. During every run a background sampler
+records the Ollama server's memory and CPU (backend/profiler.py).
 
 Thesis: Platform for evaluating language models in phishing and smishing
 detection with a focus on resource efficiency.

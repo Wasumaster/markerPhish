@@ -1,227 +1,58 @@
-# MarkerPhish — LLM Threat Evaluation & Resource Benchmarking Platform
+# MarkerPhish
 
-**Platform for evaluating language models in phishing and smishing detection with a focus on resource efficiency.**
+Platform for evaluating language models in phishing and smishing detection with a focus on resource efficiency.
 
-> Engineering Thesis  
-> PL --> *Platforma do oceny skuteczności modeli językowych w detekcji phishingu i smishingu, z optymalizacją wykorzystywanych zasobów.*
+MarkerPhish runs local language models (served by [Ollama](https://ollama.com)) on public phishing email and
+smishing SMS datasets, and measures, for every run:
 
----
+- detection quality: precision, recall, F1, FPR and FNR for the malicious class, overall and per channel, with
+  bootstrap confidence intervals, in two treatments of unanswered messages;
+- cost: latency per message, throughput, tokens per second, model memory, process memory and CPU over time;
+- whether the configuration fits a resource-constrained deployment (a laptop with 8 or 16 GB RAM and no
+  dedicated GPU), and which configuration is the best choice per profile, with paired significance tests.
 
-## TL;DR
+Every run is saved as a JSON file with a reproducibility manifest (sample, prompt, model digest, options,
+software versions, power state). The methodology, formulas and the file format are in **[OVERVIEW.md](OVERVIEW.md)**.
 
-MarkerPhish tests how well small AI language models, running locally on your own computer, can recognize fraudulent emails (phishing) and fraudulent text messages (smishing). For every model it measures two things: how accurately it detects attacks, and how much time and computing power it needs to do so. The results are shown in an interactive dashboard and saved as reports, so different models can be compared side by side.
+## Setup
 
----
-
-## Table of Contents
-
-1. [Background & Motivation](#background--motivation)
-2. [What the Platform Does](#what-the-platform-does)
-3. [System Architecture](#system-architecture)
-4. [Application Views & Workflow](#application-views--workflow)
-5. [Prerequisites & Installation](#prerequisites--installation)
-6. [Running the Platform](#running-the-platform)
-7. [Hardware Execution Modes](#hardware-execution-modes)
-8. [Evaluation Methodology & Metrics Reference](#evaluation-methodology--metrics-reference)
-9. [License & Academic Citation](#license--academic-citation)
-
----
-
-## Background & Motivation
-
-### 1. The Problem: Phishing and Smishing as a Persistent Threat
-
-> **In short:** Attackers trick people with convincing messages rather than hacking software, and traditional filters cannot keep up with endlessly reworded scams.
-
-**What phishing is.** Phishing remains one of the most common entry points for cyberattacks. Instead of exploiting software vulnerabilities, attackers exploit people: a convincing email or text message asks the recipient to click a link, log in to a fake page, confirm a payment, or share a one-time code. The message itself is the weapon, so defending against it means understanding what the text is trying to make the reader do.
-
-**Why SMS is harder.** Smishing (SMS phishing) has grown alongside the shift to mobile communication. Text messages are short, often arrive from unknown numbers, and typically impersonate couriers, banks, government offices, or mobile operators. Their brevity makes them harder to analyze than emails, because there is little context, no headers worth inspecting, and frequently just a single shortened link.
-
-**Why classic filters fall short.** Traditional defenses such as keyword filters, sender blacklists, and URL reputation databases react to known patterns. They struggle when attackers rephrase the same scam in endless variations, which is now trivial to do with generative AI. This creates a need for detectors that judge the **intent and meaning** of a message rather than its exact wording.
-
-### 2. Why Large Language Models, and Why Run Them Locally
-
-> **In short:** Language models understand what a message is trying to achieve, and running them locally keeps private messages on your own machine.
-
-**Why LLMs fit the task.** Large language models can recognize urgency, impersonation, requests for credentials, or suspicious calls to action even in messages they have never seen before. They can do so in a zero-shot setting, with only a well-designed prompt and no task-specific training.
-
-**Why locally.** Sending private emails and text messages to an external cloud API raises serious privacy, compliance, and cost concerns, since messages may contain personal data, financial details, or confidential business information. Running models **locally through Ollama** keeps all data on the user's own machine, works offline, avoids per-request fees, and makes experiments fully reproducible, since the same model version can be re-run with deterministic settings (`temperature = 0.0`).
-
-**The trade-off.** Local hardware is limited. Small models (1.5B–3.8B parameters) fit on ordinary laptops and older GPUs, but it is not obvious how much detection quality they sacrifice compared to larger ones, or whether they are fast enough to be practical.
-
----
-
-## What the Platform Does
-
-> **In short:** MarkerPhish is a Python and Streamlit application that runs local models against real phishing and smishing datasets and reports both detection quality and resource usage.
-
-MarkerPhish is a modular platform designed for automated, reproducible evaluation of large language models (LLMs) in detecting text-based social engineering attacks. It works with a local Ollama daemon and covers five areas:
-
-**1. Binary Threat Detection Effectiveness**  
-*Does the model catch attacks?*  
-Results are framed as a binary decision: malicious vs. safe. The model answers only `malicious` or `valid`; the channel is known from the dataset source (PhishFuzzer = email, Mendeley = SMS), so a detected email threat is recorded as phishing and a detected SMS threat as smishing. This reflects what matters in real-world cyber defense: stopping the attack, without asking the model to guess something the system already knows.
-
-**2. Computational Overhead & Resource Efficiency**  
-*What does detection cost?*  
-Each run records latency (mean, median, P95, min/max), inference throughput (messages per minute), model storage footprint, cold-start (model load) time, and execution stability. The model is loaded by a warm-up request before the timed run, so loading never inflates the latency figures.
-
-**3. Multi-Model Comparative Benchmarking**  
-*Which model is best overall?*  
-Six or more benchmark runs can be compared side by side, including several prompt variants of the same model, with interactive trade-off charts (F1 vs. P95 latency, throughput vs. model size) and per-class channel breakdowns.
-
-**4. Hardware Telemetry & Adaptive Execution**  
-*What hardware is it running on?*  
-The platform detects the host CPU, RAM, and GPU in real time and lets the user choose an inference mode: CPU Safe Mode for Pascal or constrained architectures, or GPU Hardware Acceleration.
-
-**5. Zero Chrome, Academic Interface**  
-*A clean, distraction-free UI.*  
-Injected CSS hides Streamlit's Deploy button, status widgets, and hamburger menu, keeping a serious, academic look with no emojis.
-
----
-
-## System Architecture
-
-> **In short:** The code is split into a `backend/` that does the work (loading data, querying models, computing metrics) and a `frontend/` that displays it, both started from a single `app.py`.
-
-**How the pieces fit.** `config.py` holds shared settings, `backend/` processes data and talks to Ollama, `frontend/` builds each dashboard tab, and `results/` stores every finished evaluation as a JSON report.
-
-```
-markerPhish/
-├── app.py                      # Main Streamlit application launcher
-├── config.py                   # Global constants, paths, prompt templates, binary mappings
-├── run.bat                     # Windows one-click launcher script
-├── requirements.txt            # Python dependencies
-├── README.md                   # System documentation & quickstart
-├── OVERVIEW.md                 # Detailed technical thesis documentation
-├── backend/                    # Core processing & analytics engine
-│   ├── __init__.py             # Backend package initialization
-│   ├── data_loader.py          # Dataset ingestion, filtering & unification
-│   ├── evaluator.py            # Local Ollama REST client & inference runner
-│   ├── hardware.py             # Hardware scanning & execution mode resolver
-│   ├── metrics.py              # Binary threat metrics & resource profiling
-│   └── utils.py                # Logging, text cleaning & result persistence
-├── frontend/                   # Modular presentation layer
-│   ├── __init__.py             # Frontend package exports
-│   ├── styles.py               # Design system, typography & chrome suppression CSS
-│   ├── sidebar.py              # Configuration sidebar (model, dataset, hardware)
-│   ├── header.py               # Static academic branding header
-│   ├── overview.py             # Tab 1: Dataset distribution & message browser
-│   ├── runner.py               # Tab 2: Live evaluation runner & telemetry
-│   ├── single_run.py           # Tab 3: Detailed single-run analysis
-│   ├── multi_comparison.py     # Tab 4: Multi-model comparative benchmarking (6+ runs)
-│   └── views/                  # View re-exports package
-├── results/                    # Persistent evaluation reports (JSON)
-└── Data/                       # Raw datasets
-    ├── Phising/PhishFuzzer-main/ # Email phishing dataset (JSON)
-    └── Smishing/Dataset_10191.csv# SMS smishing dataset (CSV)
-```
-
----
-
-## Application Views & Workflow
-
-> **In short:** The dashboard has four tabs that follow a natural workflow: look at the data, run an evaluation, analyze one result in detail, then compare several models.
-
-### 1. Dataset Overview (`frontend/overview.py`)
-
-*See what data the models will be tested on.*
-
-- Real-time composition KPIs (total records, malicious threat volume, safe legitimate volume).
-- Asymmetric layout with binary threat distribution bar charts and a source provenance matrix (`source` × `true_label`).
-- Interactive message explorer with class-based filtering, keyword search, and full text inspection.
-
-### 2. Live Evaluation Runner (`frontend/runner.py`)
-
-*Run a model on the dataset and watch it work.*
-
-- Real-time inference monitoring with a dynamic progress bar.
-- Live telemetry: processed records, running binary accuracy, mean latency, and ETA timer.
-- Activity card showing recent inferences, predictions, correctness, and response times.
-- Automatic report compilation and archive generation when the run completes.
-
-### 3. Detailed Single-Run Analysis (`frontend/single_run.py`)
-
-*Understand exactly how one model performed.*
-
-- **Primary Binary Metrics:** Binary Accuracy, Threat Precision, Threat Recall, Threat F1-Score, Safe Specificity, Threat Miss Rate (FNR), False Alarm Rate (FPR), and Failed Inferences.
-- **Visual Diagnostics:** Interactive binary confusion matrix heatmap and ground truth vs. predicted distribution comparisons.
-- **Channel Diagnostics:** Detailed multi-class metrics (phishing vs. smishing vs. valid) and a channel confusion matrix.
-- **Computational Overhead:** Mean, median, and P95 latency, throughput, total execution time, cold-start (model load) time, and a latency distribution histogram. The report header shows the model and its prompt variant; reports created before prompt variants existed are shown as `legacy`.
-- **Audit Log & Traceability:** Full prediction audit table with per-record latency, prompt responses, and scikit-learn report exports.
-
-### 4. Multi-Model Comparison (`frontend/multi_comparison.py`)
-
-*Put several models next to each other and pick the best fit.*
-
-- Concurrent evaluation of **6 or more benchmark JSON reports**.
-- **Summary Metrics Matrix:** Side-by-side table with Prompt Variant, Accuracy, Threat Precision, Threat Recall, Threat F1-Score, Safe Specificity, P95 Latency, Throughput, Cold Start, Model Size, and Hardware Mode. Runs are labelled `model [prompt variant]`, so two variants of the same model stay distinguishable in the table, charts, and CSV export.
-- **Executive KPI Cards:** Instant identification of best-in-class models (Highest F1, Highest Recall, Lowest P95 Latency, Peak Throughput).
-- **Interactive Trade-off Analysis (Plotly):**
-  - Threat F1-Score vs. P95 Latency (with model size bubble scaling).
-  - Throughput (msgs/min) vs. Model Storage Footprint (MB).
-- **Per-Class Channel Breakdown:** Cross-model comparison across attack vectors (Phishing Email vs. Smishing SMS vs. Valid Legitimate).
-- **CSV Matrix Export:** Direct export of comparison tables for academic papers and external graphing tools.
-
----
-
-## Prerequisites & Installation
-
-> **In short:** You need Python 3.13, a running Ollama server, and at least one model downloaded.
-
-| Requirement | Specification |
-|-------------|---------------|
-| **Operating System** | Windows 10/11, Linux, or macOS |
-| **Python** | 3.13 (results produced with 3.13.3; the code uses `X | None` types, so 3.10 is the absolute minimum, but only 3.13 is tested) |
-| **Ollama** | Local daemon running (`ollama serve`) |
-| **Default Models** | `qwen2.5:1.5b`, `llama3.2:latest`, `phi3.5:latest` |
-| **Compute Device** | Multi-core CPU or NVIDIA CUDA GPU |
-
-### Setup Instructions
+Requirements: Windows 10/11, Linux or macOS; Python 3.13 (results were produced with 3.13.3; the code needs at
+least 3.10); [Ollama](https://ollama.com) running locally; at least one model pulled.
 
 ```powershell
-# 1. Clone or navigate to the repository
 git clone https://github.com/Wasumaster/markerPhish.git
 cd markerPhish
-
-# 2. Create and activate a Python virtual environment
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-
-# 3. Install dependencies (exact versions; requirements-dev.txt adds pytest)
-pip install -r requirements.txt
-pip install -r requirements-dev.txt   # optional: to run the tests (python -m pytest)
-
-# 4. Pull required Ollama models
-ollama pull qwen2.5:1.5b
-ollama pull llama3.2
-ollama pull phi3.5
+pip install -r requirements.txt          # exact, pinned versions
+pip install -r requirements-dev.txt      # optional: pytest, to run the tests
+ollama pull <model>                      # any model; the app lists whatever Ollama has installed
 ```
 
----
+Run the tests with `python -m pytest` (they use a fake Ollama and never load a model).
 
-## Running the Platform
+## Run one evaluation
 
-> **In short:** Double-click `run.bat` (Windows) or run `streamlit run app.py`, then open `http://localhost:8501`.
+Start the app with `run.bat` (Windows) or `streamlit run app.py`, then open `http://localhost:8501`.
 
-### Option A: Windows Launcher Script
+1. **Sidebar:** pick a model, a prompt variant (zeroshot / fewshot / fewshotcot), the dataset (default
+   PhishFuzzer Seed + SMS) and the sample size (50, 100, 250, 500, 1000 or custom; 50 and 100 are smoke tests,
+   sizes below 500 are for testing and the pilot only).
+2. **Dataset:** the sample and the preprocessing report (spam removed, duplicates, truncation, records per cell).
+3. **Run:** check the configuration (per-cell counts, estimated time), the start mode (warm / cold), the
+   loaded-models warning, optionally the "advanced" inference options, then **Run evaluation**. The
+   "non-LLM baseline" expander trains and evaluates a TF-IDF + logistic regression reference on the same sample
+   in seconds.
+4. **Results:** detection with confidence intervals, per channel, cost, resources over time, hardware and manifest.
+5. **Compare:** all runs side by side, the recommendation per constraint profile, the Pareto chart and pairwise
+   McNemar tests.
 
-Double-click `run.bat` or execute it in a terminal:
+Optional: `python -m backend.calibrate <model>` measures the model's tokenizer density (at most three requests)
+for the context check. Without it the app uses a conservative default and shows a note.
 
-```cmd
-run.bat
-```
+## Batch mode (headless, many runs)
 
-### Option B: Streamlit CLI
-
-```powershell
-streamlit run app.py
-```
-
-Once running, open the application in your browser at `http://localhost:8501`.
-
-### Option C: Batch mode (headless, many runs)
-
-An experiment file (YAML, format in `backend/experiment.py` and OVERVIEW.md) describes a matrix of
+An experiment file (YAML; format and example in [OVERVIEW.md §12](OVERVIEW.md#12-batch-mode)) describes a matrix of
 models × prompt variants × options × repetitions. Run it without the UI:
 
 ```powershell
@@ -230,86 +61,33 @@ python -m backend.batch path\to\experiment.yaml             # run; restart the s
 ```
 
 One run JSON per cell lands in `results/` (the same files the UI reads); the batch summary and log are in
-`results/batches/`. Finished cells are skipped on restart, a failed cell is logged and the batch continues.
+`results/batches/`. Finished cells are skipped on restart; a failed cell is logged and the batch continues.
 
 **Running overnight on Windows**
 
 - Plug in AC power (the batch warns on battery; CPU clocks drop on battery) and keep the power plan fixed.
 - Prevent sleep while plugged in: `powercfg /change standby-timeout-ac 0` and `powercfg /change hibernate-timeout-ac 0`.
 - If the lid will be closed: `powercfg /setacvalueindex SCHEME_CURRENT SUB_BUTTONS LIDACTION 0` then
-  `powercfg /setactive SCHEME_CURRENT` (lid close = do nothing on AC). Otherwise keep the lid open.
-- Close other heavy programs; the app itself need not run. Pause OneDrive sync, or move results out of the
+  `powercfg /setactive SCHEME_CURRENT` (closing the lid then does nothing on AC). Otherwise keep the lid open.
+- Close other heavy programs; the app itself need not run. Pause OneDrive sync, or move the results out of a
   synced folder with the environment variable `MARKERPHISH_RESULTS_DIR`.
-- Start the batch from a terminal that stays open (e.g. `start powershell -NoExit -Command "python -m backend.batch ..."`).
+- Start the batch in a terminal that stays open.
 
----
+## Repository layout
 
-## Hardware Execution Modes
+| path | content |
+|---|---|
+| `app.py`, `frontend/`, `ui/` | Streamlit UI and design system |
+| `backend/` | data pipeline, sampling, Ollama client, profiling, metrics, manifest, optimum analysis, batch, baseline |
+| `config.py` | all constants (labels, prompt, context budget, profiles, protocol) |
+| `Data/` | PhishFuzzer (email) and Mendeley (SMS) datasets |
+| `results/` | saved runs (`eval_*.json`); `results/batches/` batch summaries and logs |
+| `tests/` | pytest suite (fake Ollama) |
+| `docs/` | audit, refactor task and progress log |
 
-> **In short:** Choose CPU mode for stability on older GPUs, or GPU mode for speed on modern ones.
+The six runs from October 2026 in `results/` use an older protocol (OVERVIEW.md §15) and have latencies inflated by
+about 2 s per message (§13.3); Compare hides them by default.
 
-Hardware capabilities are inspected at startup by `backend/hardware.py`.
+## License & citation
 
-**CPU Safe Mode (`num_gpu=0`)**  
-*Stable everywhere.*  
-Forces multi-threaded CPU execution. Recommended for Pascal-architecture GPUs (e.g. GTX 1060, Compute 6.1) to avoid CUDA PTX toolchain buffer overruns, guaranteeing stable execution for 1.5B–3.8B parameter models.
-
-**GPU Hardware Acceleration (`num_gpu=None`)**  
-*Fastest on modern hardware.*  
-Enables CUDA kernel offloading for maximum throughput on modern GPU architectures with sufficient VRAM.
-
----
-
-## Evaluation Methodology & Metrics Reference
-
-> **In short:** Every prediction is sorted into one of four outcomes (caught attack, correctly passed message, false alarm, missed attack), and all metrics are calculated from those counts.
-
-### Binary Threat Detection Schema
-
-**How a single prediction is scored.** The model answers `malicious` or `valid`. A `malicious` answer is recorded as `phishing` for emails and `smishing` for SMS (the channel comes from the dataset source), and is then compared with the true label of the message:
-
-| Ground Truth | Model Answer | Classification Outcome | Cyber Defense Impact |
-|--------------|--------------|------------------------|----------------------|
-| `phishing` or `smishing` | `malicious` | True Positive (TP) | Attack Intercepted |
-| `valid` | `valid` | True Negative (TN) | Legitimate Message Passed |
-| `valid` | `malicious` | False Positive (FP) | False Alarm / Disruption |
-| `phishing` or `smishing` | `valid` | False Negative (FN) | Undetected Threat (Security Breach) |
-
-### Prompt Variants & Inference Setup
-
-**What is held constant.** Every run uses `temperature = 0.0`, `top_p = 1.0`, and a 4,096-token context window (`num_ctx`; the few-shot prompt is about 850 tokens plus a message of up to 1,500 characters). The answer is constrained with a JSON Schema passed as Ollama's `format` parameter, so the model can only return `{"label": "malicious"}` or `{"label": "valid"}`. Models that Ollama reports as thinking-capable receive `think: false`.
-
-**What is varied.** The prompt variant is selected in the sidebar and stored in every report (`prompt_variant`, `inference_config`) and in the file name (`eval_<model>_<variant>_<timestamp>.json`):
-
-| Variant | Prompt | Output | `num_predict` |
-|---------|--------|--------|---------------|
-| `zeroshot` | Instructions only | `{"label": ...}` | 24 |
-| `fewshot` (default) | Instructions + 6 hand-written examples | `{"label": ...}` | 24 |
-| `fewshotcot` | Instructions + 6 examples with a one-sentence justification | `{"reasoning": ..., "label": ...}` | 160 |
-
-**Same records for every run.** Subsamples are drawn with seeded stratified sampling (source × label, `SAMPLE_SEED = 42`), so every model and variant is evaluated on exactly the same messages in the same class proportions. HTML email bodies are converted to plain text with link targets kept visible (`TEXT (URL)`).
-
-### Formal Metrics
-
-**What the numbers mean.** The first column says what each metric is called, the last column says what it tells you in plain terms.
-
-| Metric | Formula | Description |
-|--------|---------|-------------|
-| **Binary Accuracy** | `(TP + TN) / Total` | Overall correctness across all communications |
-| **Threat Precision** | `TP / (TP + FP)` | Confidence that a flagged message is genuinely malicious |
-| **Threat Recall** | `TP / (TP + FN)` | Percentage of actual threats intercepted |
-| **Threat F1-Score** | `2 * (P * R) / (P + R)` | Harmonic mean balancing precision and recall |
-| **Safe Specificity** | `TN / (TN + FP)` | Ability to pass legitimate traffic unhindered |
-| **Threat Miss Rate (FNR)** | `FN / (TP + FN)` | Rate of undetected attacks passing into the inbox |
-| **P95 Latency** | 95th percentile | Response time threshold covering 95% of queries |
-| **Throughput** | `(Completed / Elapsed) * 60` | Operational throughput in messages per minute |
-
----
-
-## License & Academic Citation
-
-Developed as part of an Engineering Thesis (*Praca Inżynierska*):
-
-- **Title:** *Platforma do oceny skuteczności modeli językowych w detekcji phishingu i smishingu, z optymalizacją wykorzystywanych zasobów*
-- **Author:** Szymon Wąs / MarkerPhish Project
-- **Purpose:** Academic research, reproducibility benchmarks, and defensive LLM evaluation.
+Developed as part of an engineering thesis. The datasets keep their original licenses (see `Data/`).
