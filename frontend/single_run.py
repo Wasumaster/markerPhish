@@ -51,7 +51,8 @@ from ui.components import (
     section_label,
     section_title,
 )
-from ui.theme import FONT_MONO, INK, MALICIOUS, RULE, SAFE, SURFACE
+from backend.detection import score_curves
+from ui.theme import FONT_MONO, INK, MALICIOUS, MUTED, RULE, SAFE, SURFACE
 
 
 def render_results(report: dict) -> None:
@@ -231,6 +232,8 @@ def render_results(report: dict) -> None:
     # Level 5: Audit Trail, Hardware & Export
     # ──────────────────────────────────────────────
     _render_resources(report.get("resources"))
+    _render_resource_timeline(report.get("resources"))
+    _render_score_curves(report.get("raw_predictions") or [])
 
     hw_prof = report.get("hardware") or report.get("hardware_profile")
     if hw_prof:
@@ -431,6 +434,50 @@ def _render_resources(res: dict | None) -> None:
     kv_table(rows, headers=("measure", "value"))
     if res.get("other_models_loaded") and not res.get("other_models_unloaded"):
         st.warning("Other models were loaded in Ollama during this run; memory and latency include their effect.")
+
+
+def _render_resource_timeline(res: dict | None) -> None:
+    """RAM and CPU of the profiled process tree over the run, from the stored samples."""
+    samples = (res or {}).get("samples") or []
+    section_label("RAM / CPU over time")
+    if len(samples) < 2:
+        note("No resource samples stored for this run.")
+        return
+    t = [s.get("t_s") for s in samples]
+    fig = go.Figure([
+        go.Scatter(name="RAM (MB)", x=t, y=[s.get("ram_mb") for s in samples], mode="lines",
+                   line=dict(color=INK, width=1.5), hovertemplate="%{x:.1f} s · %{y:.0f} MB<extra></extra>"),
+        go.Scatter(name="CPU (% of machine)", x=t, y=[s.get("cpu_pct") for s in samples], mode="lines",
+                   yaxis="y2", line=dict(color=MUTED, width=1, dash="dot"),
+                   hovertemplate="%{x:.1f} s · %{y:.1f} %<extra></extra>"),
+    ])
+    fig.update_layout(xaxis_title="time since first request (s)", yaxis_title="process-tree RSS (MB)",
+                      yaxis2=dict(title="CPU %", overlaying="y", side="right", rangemode="tozero", showgrid=False),
+                      showlegend=True)
+    plot(fig, caption="solid = RSS of the profiled processes · dotted = CPU share of the whole machine", height=300)
+
+
+def _render_score_curves(raw: list[dict]) -> None:
+    """ROC and precision-recall curves for runs whose records carry a probability score."""
+    curves = score_curves(raw)
+    if not curves:
+        return
+    section_title("Scores", f"Runs with a probability per record ({curves['n']} records): ROC and precision-recall.")
+    col1, col2 = st.columns(2, gap="large")
+    with col1:
+        fig = go.Figure([
+            go.Scatter(x=curves["roc"]["fpr"], y=curves["roc"]["tpr"], mode="lines", line=dict(color=INK, width=1.5),
+                       hovertemplate="FPR %{x:.3f} · TPR %{y:.3f}<extra></extra>"),
+            go.Scatter(x=[0, 1], y=[0, 1], mode="lines", line=dict(color=RULE, width=1, dash="dash"), hoverinfo="skip"),
+        ])
+        fig.update_layout(xaxis_title="false positive rate", yaxis_title="true positive rate", showlegend=False)
+        plot(fig, caption=f"ROC · AUC {curves['roc']['auc']:.4f}", height=300)
+    with col2:
+        fig = go.Figure(go.Scatter(x=curves["pr"]["recall"], y=curves["pr"]["precision"], mode="lines",
+                                   line=dict(color=INK, width=1.5),
+                                   hovertemplate="recall %{x:.3f} · precision %{y:.3f}<extra></extra>"))
+        fig.update_layout(xaxis_title="recall", yaxis_title="precision", showlegend=False)
+        plot(fig, caption=f"precision-recall · average precision {curves['pr']['average_precision']:.4f}", height=300)
 
 
 @st.cache_data(ttl=60, show_spinner=False)

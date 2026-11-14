@@ -37,6 +37,7 @@ def test_offline_ollama_shows_message_instead_of_crashing(fake_ollama, legacy_re
 
 def test_compare_select_all_selects_every_run(app, legacy_results_dir):
     files = sorted(f for f in os.listdir(legacy_results_dir) if f.endswith(".json"))
+    app.toggle(key="compare_show_hidden").set_value(True).run()  # the stored runs are all legacy
     runs = next(m for m in app.multiselect if m.label == "runs")
     runs.set_value([files[0]]).run()
     runs = next(m for m in app.multiselect if m.label == "runs")
@@ -176,7 +177,11 @@ def test_results_shows_both_unknown_modes_with_confidence_intervals(fake_ollama,
     assert "per channel" in text and "generation tokens/s" in text
     assert not any("Measured before the Ollama URL fix" in w.value for w in at.tabs[2].warning)
     compare = _tab_text(at, 3)
-    assert "F1 (unknown = error)" in compare and "Latency inflated" in compare  # legacy runs are selected too
+    assert "F1 [95% CI]" in compare and "Latency inflated" not in compare  # legacy runs hidden by default
+    assert "6 legacy or dev run(s) hidden" in compare
+    at.toggle(key="compare_show_hidden").set_value(True).run()
+    compare = _tab_text(at, 3)
+    assert "Latency inflated" in compare and "never bold, never recommended" in compare
 
 
 def test_legacy_run_in_results_is_flagged_as_latency_inflated(app):
@@ -265,6 +270,7 @@ def test_compare_recommends_per_profile(fake_ollama, legacy_results_dir, toy_df)
     assert "Recommendation" in text and "laptop-8gb" in text and "laptop-16gb" in text
     assert "acme-small:7b [zeroshot]" in text  # the most accurate model fits both budgets
     assert "not significantly different" in text
+    at.toggle(key="compare_show_hidden").set_value(True).run()
     assert "runs excluded from the recommendation (6)" in " ".join(e.label for e in at.tabs[3].expander)
     assert len(at.tabs[3].get("plotly_chart")) >= 3
 
@@ -285,3 +291,40 @@ def test_baseline_button_saves_a_baseline_run(fake_ollama, results_dir):
     files = os.listdir(results_dir)
     assert len(files) == 1 and files[0].startswith("eval_baseline-tfidf-lr_baseline_")
     assert fake_ollama.generate_calls() == []  # the baseline never talks to Ollama
+
+
+def test_compare_marks_hidden_runs_and_warns_about_mixed_samples(fake_ollama, legacy_results_dir, toy_df):
+    _save_fake_runs(fake_ollama, toy_df, {"acme-small:1b": 0.9})
+    at = AppTest.from_file(APP, default_timeout=120)
+    at.run()
+    assert not any("different samples" in w.value for w in at.tabs[3].warning)  # one sample only
+    at.toggle(key="compare_show_hidden").set_value(True).run()
+    assert not at.exception
+    assert any("different samples" in w.value for w in at.tabs[3].warning)  # legacy runs have no fingerprint
+    text = _tab_text(at, 3)
+    assert text.count(" legacy ") >= 6
+
+
+def test_run_tab_shows_cells_purpose_and_estimate(fake_ollama, legacy_results_dir):
+    at = AppTest.from_file(APP, default_timeout=120)
+    at.run()
+    next(s for s in at.sidebar.selectbox if s.label == "sample size").set_value(50)
+    at.run()
+    text = _tab_text(at, 1)
+    assert "50 · smoke test, not for results" in text
+    assert "email phishing 13 · email valid 13 · sms smishing 12 · sms valid 12" in text
+    assert "estimated time" in text and "rough: no earlier run" in text
+
+
+def test_results_shows_timeline_and_score_curves_for_a_scored_run(fake_ollama, results_dir):
+    at = AppTest.from_file(APP, default_timeout=300)
+    at.run()
+    next(s for s in at.sidebar.selectbox if s.label == "sample size").set_value(50)
+    at.run()
+    next(b for b in at.button if b.label == "Run TF-IDF baseline on this sample").click().run()
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    text = _tab_text(at, 2)
+    assert "RAM / CPU over time" in text and "Scores" in text
+    assert len(at.tabs[2].get("plotly_chart")) >= 3
+

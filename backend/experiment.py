@@ -288,3 +288,18 @@ def measured_seconds_per_record(reports: list[dict]) -> dict:
             key = (rep.get("model_name"), (rep.get("manifest") or {}).get("prompt", {}).get("prompt_variant"))
             per.setdefault(key, []).append(float(mean))
     return {k: statistics.median(v) for k, v in per.items()}
+
+
+def estimate_run_seconds(model: str, prompt_variant: str, n_records: int, measured: dict) -> tuple[float, str]:
+    """Estimated duration of one run (seconds, 'measured' | 'rough'), same rules as estimate_seconds."""
+    cell = Cell(0, model, prompt_variant, {}, 1, "")
+    seconds, quality = estimate_seconds([cell], n_records, measured)
+    return seconds, quality
+
+
+def format_duration(seconds: float) -> str:
+    seconds = int(round(seconds))
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h} h {m:02d} min" if h else (f"{m} min {s:02d} s" if m else f"{s} s")
+

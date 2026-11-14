@@ -233,3 +233,30 @@ def compare_runs(report_a: dict, report_b: dict) -> dict:
         return {"comparable": False, "reason": "not comparable: the runs do not contain the same records"}
     result = mcnemar(np.array([ca[i] for i in ids]), np.array([cb[i] for i in ids]))
     return {"comparable": True, "reason": None, **result}
+
+
+# ──────────────────────────────────────────────
+# Score curves (runs whose records carry a probability score)
+# ──────────────────────────────────────────────
+def score_curves(raw: list[dict]) -> dict | None:
+    """
+    ROC and precision-recall curves with AUC / average precision, from the
+    per-record "score" (probability of malicious). None when the run has no
+    scores (LLM runs store hard labels only) or only one class.
+    """
+    from sklearn.metrics import auc, average_precision_score, precision_recall_curve, roc_curve
+
+    pairs = [(_true_binary(r), r.get("score")) for r in raw]
+    pairs = [(t == "malicious", float(s)) for t, s in pairs if t is not None and isinstance(s, (int, float))]
+    if len(pairs) < 2 or len({t for t, _ in pairs}) < 2:
+        return None
+    y = np.array([t for t, _ in pairs], dtype=int)
+    s = np.array([v for _, v in pairs])
+    fpr, tpr, _ = roc_curve(y, s)
+    precision, recall, _ = precision_recall_curve(y, s)
+    return {
+        "n": len(pairs),
+        "roc": {"fpr": fpr.round(5).tolist(), "tpr": tpr.round(5).tolist(), "auc": round(float(auc(fpr, tpr)), 4)},
+        "pr": {"precision": precision.round(5).tolist(), "recall": recall.round(5).tolist(),
+               "average_precision": round(float(average_precision_score(y, s)), 4)},
+    }

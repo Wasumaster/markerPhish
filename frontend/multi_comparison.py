@@ -1,40 +1,38 @@
 """
-MarkerPhish — Multi-Model Comparison Component
-===============================================
-Compares several evaluation runs: one summary table (best value per column in
-bold), detection-vs-cost scatter plots, and per-class channel breakdowns.
+MarkerPhish — Compare tab
+==========================
+Compares saved runs: one table (best value per column in bold, only among runs
+that may be best), the recommendation per constraint profile, trade-off
+scatters and the legacy per-class breakdown. Rendering only: rows, rules and
+analyses come from backend.compare and backend.optimum.
 """
 
 from __future__ import annotations
+
+import os
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from backend.utils import (
-    ensure_report_compatibility,
-    list_saved_result_files,
-    load_result_by_filename,
-    report_cold_start,
-    report_prompt_variant,
-)
-from config import LEGACY_PROMPT_VARIANT
+from backend import utils as backend_utils
+from backend.compare import best_values, build_comparison, hidden_reason, visible_runs
+from backend.utils import ensure_report_compatibility, list_saved_result_files, load_result_by_filename
+from config import CONSTRAINT_PROFILES
 from frontend.recommendation import render_recommendation
 from ui.components import (
     DASH,
-    best_flags,
     cell,
     data_table,
     esc,
+    fmt_ci,
     fmt_int,
     fmt_mb,
-    fmt_ci,
     fmt_pct,
     fmt_rate,
     fmt_ratio,
-    note,
     fmt_seconds,
-    marker_legend,
+    note,
     page_title,
     plot,
     run_chip_label,
@@ -42,11 +40,11 @@ from ui.components import (
     section_label,
     section_title,
 )
-from ui.theme import CLASS_COLORS, FONT_MONO, INK, SURFACE
-
+from ui.theme import CLASS_COLORS, INK, SURFACE
 
 # Session-state key of the run multiselect.
 _SELECTION_KEY = "compare_selected_files"
+_SHOW_HIDDEN_KEY = "compare_show_hidden"
 
 
 def select_all_runs(available_files: list[str]) -> None:
@@ -54,169 +52,205 @@ def select_all_runs(available_files: list[str]) -> None:
     st.session_state[_SELECTION_KEY] = list(available_files)
 
 
-def _extract_report_summary(filename: str, report: dict) -> dict:
-    """Extract standard summary metrics from an evaluation report."""
-    report = ensure_report_compatibility(report)
-    cls = report.get("classification_metrics", {})
-    res = report.get("resource_metrics", {})
-    hw = report.get("hardware_profile", {})
-
-    model_name = report.get("model_name", "Unknown Model")
-    exec_mode = report.get("execution_mode", "CPU Safe Mode")
-    prompt_variant = report_prompt_variant(report)
-
-    # Channel metrics
-    ch_metrics = cls.get("channel_metrics", {}).get("per_class", {})
-    phishing_stats = ch_metrics.get("phishing", {})
-    smishing_stats = ch_metrics.get("smishing", {})
-    valid_stats = ch_metrics.get("valid", {})
-
-    det = report.get("detection") or {}
-    ue = (det.get("overall") or {}).get("unknown_as_error") or {}
-    return {
-        "filename": filename,
-        "latency_inflated": bool(report.get("latency_inflated")),
-        "is_baseline": bool(report.get("baseline")),
-        "f1_ue": ue.get("f1"),
-        "f1_ue_text": fmt_ci(ue.get("f1"), (ue.get("ci") or {}).get("f1")),
-        "recall_ue": ue.get("recall"),
-        "precision_ue": ue.get("precision"),
-        "fpr_ue": ue.get("fpr"),
-        "unknown_rate": det.get("unknown_rate"),
-        "model_name": model_name,
-        "prompt_variant": prompt_variant,
-        "model_variant": f"{model_name} [{prompt_variant}]",
-        "execution_mode": exec_mode,
-        "model_size_mb": float(res.get("model_size_mb", 0.0)),
-        # Primary Binary Detection Metrics
-        "accuracy": float(cls.get("accuracy", 0.0)),
-        "precision": float(cls.get("precision", 0.0)),
-        "recall": float(cls.get("recall", 0.0)),
-        "f1": float(cls.get("f1", 0.0)),
-        "specificity": float(cls.get("specificity", 0.0)),
-        "miss_rate": float(cls.get("miss_rate", 0.0)),
-        "false_alarm_rate": float(cls.get("false_alarm_rate", 0.0)),
-        # Resource & Overhead Metrics
-        "avg_latency_s": float(res.get("avg_latency_s", 0.0)),
-        "median_latency_s": float(res.get("median_latency_s", 0.0)),
-        "p95_latency_s": float(res.get("p95_latency_s", 0.0)),
-        "throughput_msgs_per_min": float(res.get("throughput_msgs_per_min", 0.0)),
-        "total_time_s": float(res.get("total_time_s", 0.0)),
-        "cold_start_s": report_cold_start(report),
-        # Not recorded by the evaluator yet; shown as "—" when absent
-        "peak_ram_mb": res.get("peak_ram_mb"),
-        "total_evaluated": int(cls.get("total_evaluated", 0)),
-        "unknown_predictions": int(cls.get("unknown_predictions", 0)),
-        # Channel-Level Breakdown
-        "phishing_precision": float(phishing_stats.get("precision", 0.0)),
-        "phishing_recall": float(phishing_stats.get("recall", 0.0)),
-        "phishing_f1": float(phishing_stats.get("f1-score", 0.0)),
-        "smishing_precision": float(smishing_stats.get("precision", 0.0)),
-        "smishing_recall": float(smishing_stats.get("recall", 0.0)),
-        "smishing_f1": float(smishing_stats.get("f1-score", 0.0)),
-        "valid_precision": float(valid_stats.get("precision", 0.0)),
-        "valid_recall": float(valid_stats.get("recall", 0.0)),
-        "valid_f1": float(valid_stats.get("f1-score", 0.0)),
-    }
+@st.cache_data(show_spinner=False, max_entries=512)
+def _load_report_cached(results_dir: str, filename: str, mtime: float) -> dict | None:
+    """A loaded, compatibility-checked report; reloaded when the file changes."""
+    report = load_result_by_filename(filename)
+    return ensure_report_compatibility(report) if report else None
 
 
-_LATENCY_KEYS = {"p95_latency_s", "avg_latency_s", "throughput_msgs_per_min"}
+def load_reports(files: list[str]) -> dict[str, dict]:
+    out = {}
+    for f in files:
+        path = os.path.join(backend_utils.RESULTS_DIR, f)
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            continue
+        rep = _load_report_cached(backend_utils.RESULTS_DIR, f, mtime)
+        if rep:
+            out[f] = rep
+    return out
 
 
-def _summary_table(comp_df: pd.DataFrame) -> None:
-    """One row per run; the best value in each metric column is set in bold."""
-    # (header, column key, formatter, preference for bold or None)
+def _pct1(value) -> str:
+    return DASH if value is None else f"{value:.1f} %"
+
+
+def _fits_text(value) -> str:
+    return DASH if value is None else ("yes" if value else "no")
+
+
+def _summary_table(rows: list[dict], comparison: dict, profile_names: list[str]) -> None:
+    """One row per run; bold = best value of the column among runs that may be best."""
+    # (header, key, formatter, preference)
     spec = [
-        ("F1 (unknown = error)", "f1_ue", None, "max"),
-        ("recall", "recall_ue", fmt_ratio, "max"),
-        ("precision", "precision_ue", fmt_ratio, "max"),
-        ("FPR", "fpr_ue", fmt_ratio, "min"),
+        ("F1 [95% CI]", "f1", None, "max"),
+        ("recall", "recall", fmt_ratio, "max"),
+        ("precision", "precision", fmt_ratio, "max"),
+        ("FPR", "fpr", fmt_ratio, "min"),
         ("unknown", "unknown_rate", fmt_pct, "min"),
-        ("F1 (excl. unknown)", "f1", fmt_pct, "max"),
-        ("accuracy", "accuracy", fmt_pct, "max"),
-        ("specificity", "specificity", fmt_pct, "max"),
-        ("false alarm", "false_alarm_rate", fmt_pct, "min"),
         ("p95 latency", "p95_latency_s", fmt_seconds, "min"),
-        ("mean latency", "avg_latency_s", fmt_seconds, "min"),
-        ("throughput", "throughput_msgs_per_min", fmt_rate, "max"),
-        ("cold start", "cold_start_s", fmt_seconds, "min"),
-        ("peak RAM", "peak_ram_mb", fmt_mb, "min"),
-        ("size", "model_size_mb", fmt_mb, "min"),
-        ("messages", "total_evaluated", fmt_int, None),
+        ("throughput", "throughput", fmt_rate, "max"),
+        ("gen tok/s", "generation_tps", lambda v: fmt_ratio(v, 1), "max"),
+        ("model memory", "model_memory_mb", fmt_mb, "min"),
+        ("peak RSS", "peak_rss_mb", fmt_mb, "min"),
+        ("mean CPU", "mean_cpu_pct", _pct1, "min"),
     ]
-    best = {key: best_flags(comp_df[key].tolist(), pref) for _, key, _, pref in spec if pref}
+    if comparison["has_gpu"]:
+        spec += [("peak VRAM", "peak_vram_mb", fmt_mb, "min"), ("GPU offload", "model_vram_mb", fmt_mb, None)]
+    best = {key: best_values(rows, key, pref) for _, key, _, pref in spec if pref}
+    latency_keys = {"p95_latency_s", "throughput", "generation_tps"}
 
-    headers = ["model", "run", "prompt"] + [h for h, *_ in spec] + ["hardware"]
-    rows = []
-    for i, row in enumerate(comp_df.itertuples(index=False)):
-        legacy = row.prompt_variant == LEGACY_PROMPT_VARIANT
-        model_html = esc(row.model_name) + (' <span class="mp-faint">legacy</span>' if legacy else "")
-        if row.is_baseline:
-            model_html += ' <span class="mp-faint">baseline · trained in-distribution</span>'
-        cells = [
-            cell(model_html, raw=True),
-            run_timestamp(row.filename) or DASH,
-            DASH if legacy else row.prompt_variant,
-        ]
+    lead = ["model", "quantization", "prompt"]
+    if comparison["differing_options"]:
+        lead.append("options")
+    lead += ["start", "n"]
+    headers = lead + [h for h, *_ in spec] + [f"fits {p}" for p in profile_names]
+    table_rows = []
+    for i, row in enumerate(rows):
+        marks = []
+        if row["hidden"]:
+            marks.append(row["hidden"])
+        if row["baseline"]:
+            marks.append("baseline · trained in-distribution")
+        if not row["can_be_best"] and not row["hidden"]:
+            marks.append("no valid prediction")
+        model_html = esc(row["model"] or DASH) + "".join(f' <span class="mp-faint">{esc(m)}</span>' for m in marks)
+        cells = [cell(f'<span class="nowrap">{model_html}</span>', raw=True), row["quantization"] or DASH,
+                 row["prompt"] or DASH]
+        if comparison["differing_options"]:
+            cells.append(row["options"] or DASH)
+        cells += [row["start"] or DASH, fmt_int(row["n"])]
         for _, key, fmt, pref in spec:
-            value = getattr(row, key)
-            text = row.f1_ue_text if key == "f1_ue" else fmt(value)
-            if row.latency_inflated and key in _LATENCY_KEYS and text != DASH:
+            text = fmt_ci(row["f1"], row["f1_ci"]) if key == "f1" else fmt(row[key])
+            if row["latency_inflated"] and key in latency_keys and text != DASH:
                 text += " *"
             cells.append(cell(text, bold=bool(pref and best[key][i])))
-        cells.append(row.execution_mode)
-        rows.append(cells)
+        cells += [_fits_text(row["fits"].get(p)) for p in profile_names]
+        table_rows.append(cells)
+    numeric = set(range(len(lead) - 1, len(headers)))
+    data_table(headers, table_rows, numeric=numeric)
+    footnotes = [
+        "F1, recall, precision and FPR count an unknown answer as an error (missed threat or false alarm). "
+        "Model memory is reported by Ollama (/api/ps); for the baseline it is the size of the fitted model.",
+    ]
+    if any(r["latency_inflated"] for r in rows):
+        footnotes.append("* Latency inflated by about 2 s per request (run made before the Ollama URL fix).")
+    if any(r["hidden"] for r in rows):
+        footnotes.append("Legacy and dev runs are shown for reference only: never bold, never recommended.")
+    note(" ".join(footnotes))
 
-    numeric = set(range(3, 3 + len(spec)))
+
+def _csv(rows: list[dict], profile_names: list[str]) -> bytes:
+    flat = []
     for r in rows:
-        r[0]["html"] = f'<span class="nowrap">{r[0]["html"]}</span>'
-    data_table(headers, rows, numeric=numeric)
-    note(
-        "F1, recall, precision and FPR count an unknown answer as an error (missed threat or false alarm); "
-        "F1 in brackets: 95% bootstrap CI."
-        + (" * Latency inflated by about 2 s per request (run made before the Ollama URL fix)."
-           if comp_df["latency_inflated"].any() else "")
-    )
+        item = {k: v for k, v in r.items() if k not in ("fits", "f1_ci")}
+        item["f1_ci_low"] = (r["f1_ci"] or {}).get("low")
+        item["f1_ci_high"] = (r["f1_ci"] or {}).get("high")
+        for p in profile_names:
+            item[f"fits_{p}"] = r["fits"].get(p)
+        flat.append(item)
+    return pd.DataFrame(flat).to_csv(index=False, na_rep="").encode("utf-8")
+
+
+def _run_label(row: dict) -> str:
+    label = f"{row['model']} [{row['prompt']}]"
+    if row["options"]:
+        label += f" {row['options']}"
+    return label
+
+
+def _tradeoff_charts(rows: list[dict]) -> None:
+    chart_rows = [r for r in rows if r["f1"] is not None]
+    if not chart_rows:
+        return
+    col1, col2 = st.columns(2, gap="large")
+    with col1:
+        pts = [r for r in chart_rows if r["p95_latency_s"] is not None]
+        if pts:
+            fig = go.Figure(go.Scatter(
+                x=[r["p95_latency_s"] for r in pts], y=[r["f1"] for r in pts], mode="markers",
+                text=[_run_label(r) for r in pts],
+                marker=dict(color=[INK if r["can_be_best"] else SURFACE for r in pts], size=10,
+                            line=dict(width=1.5, color=INK)),
+                hovertemplate="%{text}<br>F1 %{y:.3f} · p95 %{x:.2f} s<extra></extra>", cliponaxis=False,
+            ))
+            fig.update_layout(xaxis_title="p95 latency (s)", yaxis_title="F1 (unknown = error)")
+            plot(fig, caption="F1 vs p95 latency — up and to the left is better (open = legacy / dev)", height=380)
+    with col2:
+        pts = [r for r in chart_rows if r["throughput"] is not None and r["model_memory_mb"] is not None]
+        if pts:
+            fig = go.Figure(go.Scatter(
+                x=[r["model_memory_mb"] for r in pts], y=[r["throughput"] for r in pts], mode="markers",
+                text=[_run_label(r) for r in pts],
+                marker=dict(color=INK, size=10, line=dict(width=1, color=SURFACE)),
+                hovertemplate="%{text}<br>%{y:.1f} msg/min · %{x:.0f} MB<extra></extra>", cliponaxis=False,
+            ))
+            fig.update_layout(xaxis_title="model memory (MB)", yaxis_title="throughput (msg/min)")
+            plot(fig, caption="throughput vs model memory — up and to the left is better", height=380)
+
+
+def _per_class(reports: dict[str, dict], rows: list[dict]) -> None:
+    section_title("By class", "Channel-level F1 per run: phishing (email), smishing (SMS) and valid messages.")
+    names, per = [], {"phishing": [], "smishing": [], "valid": []}
+    for r in rows:
+        ch = ((reports[r["file"]].get("classification_metrics") or {}).get("channel_metrics") or {}).get("per_class", {})
+        names.append(f"{_run_label(r)} ({run_timestamp(r['file']) or r['file']})")
+        for k in per:
+            per[k].append((ch.get(k) or {}).get("f1-score"))
+    fig = go.Figure([
+        go.Bar(name=k, x=names, y=v, marker=dict(color=CLASS_COLORS[k], line=dict(width=0)),
+               hovertemplate=f"%{{x}}<br>{k} F1 %{{y:.2%}}<extra></extra>")
+        for k, v in per.items()
+    ])
+    fig.update_layout(barmode="group", yaxis_title="F1", showlegend=True, bargroupgap=0.05)
+    fig.update_yaxes(tickformat=".0%")
+    fig.update_xaxes(tickangle=-15)
+    plot(fig, caption="per-class F1 (excluding unknown)", height=360)
 
 
 def render_multi_comparison_view() -> None:
-    """
-    Render the multi-run benchmark comparison: run selection, summary table,
-    trade-off charts and per-class breakdown.
-    """
+    """Run selection, comparison table, recommendation, trade-off charts and per-class breakdown."""
     page_title(
         "Compare runs",
         "Detection quality against cost, for the runs you pick. Best value in each column is set in bold.",
     )
-
-    available_files = list_saved_result_files()
-    if not available_files:
+    all_files = list_saved_result_files()
+    if not all_files:
         st.info("No saved evaluation reports found in the results/ directory to compare.")
         return
+    all_reports = load_reports(all_files)
 
-    # Load every report once: used for chip labels and for the selected runs
-    reports = {f: load_result_by_filename(f) for f in available_files}
+    show_hidden = st.toggle("show legacy and dev runs", key=_SHOW_HIDDEN_KEY, value=False)
+    reports = visible_runs(all_reports, show_hidden)
+    available_files = [f for f in all_files if f in reports]
+    n_hidden = len(all_reports) - len(reports)
+    if n_hidden:
+        note(f"{n_hidden} legacy or dev run(s) hidden.")
+    if not available_files:
+        st.info("Every saved run is a legacy or dev run. Switch on \"show legacy and dev runs\" to see them, "
+                "or make a new run in the Run tab.")
+        return
+
     chip_labels = {
-        f: run_chip_label(
-            f,
-            (rep or {}).get("model_name"),
-            report_prompt_variant(rep or {}),
-            LEGACY_PROMPT_VARIANT,
-        )
-        for f, rep in reports.items()
+        f: run_chip_label(f, reports[f].get("model_name"),
+                          (reports[f].get("manifest") or {}).get("prompt", {}).get("prompt_variant")
+                          or reports[f].get("prompt_variant") or "legacy", "legacy")
+        + (f" [{hidden_reason(reports[f])}]" if hidden_reason(reports[f]) else "")
+        for f in available_files
     }
 
-    # ──────────────────────────────────────────────
-    # 1. Run selection
-    # ──────────────────────────────────────────────
     # The multiselect owns its state under _SELECTION_KEY. Initialise it once, and
-    # drop files that no longer exist (a widget value outside its options raises).
-    if _SELECTION_KEY not in st.session_state:
+    # drop files that are not offered (a widget value outside its options raises).
+    # Switching the legacy/dev toggle re-selects every run that is now offered.
+    toggled = st.session_state.get("_compare_show_hidden_prev") != show_hidden
+    st.session_state["_compare_show_hidden_prev"] = show_hidden
+    if _SELECTION_KEY not in st.session_state or toggled:
         st.session_state[_SELECTION_KEY] = list(available_files)
     else:
-        st.session_state[_SELECTION_KEY] = [
-            f for f in st.session_state[_SELECTION_KEY] if f in available_files
-        ]
+        kept = [f for f in st.session_state[_SELECTION_KEY] if f in available_files]
+        st.session_state[_SELECTION_KEY] = kept or list(available_files)
 
     ctrl_col1, ctrl_col2 = st.columns([6, 1], vertical_alignment="bottom")
     with ctrl_col1:
@@ -225,211 +259,33 @@ def render_multi_comparison_view() -> None:
             options=available_files,
             key=_SELECTION_KEY,
             format_func=lambda f: chip_labels.get(f, f),
-            help="Select 2 or more evaluation reports to generate comparative analytics. Supports 6+ runs concurrently.",
+            help="Pick the runs to compare.",
         )
-
     with ctrl_col2:
         # on_click runs before the next script run, i.e. before the multiselect is
         # instantiated again, which is the only point where its key may be written.
-        # Streamlit reruns the script after the callback.
-        st.button(
-            "select all",
-            type="tertiary",
-            on_click=select_all_runs,
-            args=(available_files,),
-        )
+        st.button("select all", type="tertiary", on_click=select_all_runs, args=(available_files,))
 
-    if not selected_files or len(selected_files) < 1:
-        st.warning("Select at least one benchmark report to inspect metrics.")
+    if not selected_files:
+        st.warning("Select at least one run.")
         return
 
-    # Compile all selected reports
-    compiled_data = []
-    for f in selected_files:
-        rep = reports.get(f)
-        if rep:
-            compiled_data.append(_extract_report_summary(f, rep))
+    selected = {f: reports[f] for f in selected_files}
+    profile_names = list(CONSTRAINT_PROFILES)
+    comparison = build_comparison(selected, profile_names)
+    rows = comparison["rows"]
 
-    if not compiled_data:
-        st.error("Failed to load data for selected evaluation files.")
-        return
-
-    comp_df = pd.DataFrame(compiled_data)
-
-    # Short label: Model [variant] + run timestamp
-    def make_run_label(row: pd.Series) -> str:
-        fn = row["filename"]
-        stem = fn[:-5] if fn.endswith(".json") else fn
-        parts = stem.split("_")
-        ts = f"{parts[-2]}_{parts[-1]}" if len(parts) >= 3 else stem
-        return f"{row['model_variant']} ({ts})"
-
-    comp_df["run_label"] = comp_df.apply(make_run_label, axis=1)
-
-    # ──────────────────────────────────────────────
-    # 2. Summary table (replaces the KPI cards and the summary matrix)
-    # ──────────────────────────────────────────────
-    _summary_table(comp_df)
-
-    # CSV export of the comparison matrix for external thesis analysis
-    matrix_cols = [
-        "run_label",
-        "prompt_variant",
-        "execution_mode",
-        "model_size_mb",
-        "accuracy",
-        "precision",
-        "recall",
-        "f1",
-        "specificity",
-        "p95_latency_s",
-        "throughput_msgs_per_min",
-        "cold_start_s",
-    ]
-    display_matrix = comp_df[matrix_cols].copy()
-    display_matrix.columns = [
-        "Model / Run",
-        "Prompt Variant",
-        "Hardware Mode",
-        "Size (MB)",
-        "Accuracy",
-        "Threat Precision",
-        "Threat Recall",
-        "Threat F1",
-        "Safe Specificity",
-        "P95 Latency (s)",
-        "Throughput (msg/min)",
-        "Cold Start (s)",
-    ]
-    csv_data = display_matrix.to_csv(index=False, na_rep="n/a").encode("utf-8")
-    st.download_button(
-        "Export comparison (CSV)",
-        data=csv_data,
-        file_name="markerphish_multi_model_benchmark.csv",
-        mime="text/csv",
-    )
-
-    render_recommendation({f: ensure_report_compatibility(reports[f]) for f in selected_files if reports.get(f)})
-
-    # ──────────────────────────────────────────────
-    # 3. Trade-off charts
-    # ──────────────────────────────────────────────
-    chart_col1, chart_col2 = st.columns(2, gap="large")
-    max_size = max(comp_df["model_size_mb"].max(), 1.0)
-
-    with chart_col1:
-        # Threat F1 vs. P95 latency (marker size = model size)
-        fig_f1_lat = go.Figure(
-            go.Scatter(
-                x=comp_df["p95_latency_s"],
-                y=comp_df["f1"],
-                mode="markers+text",
-                text=comp_df["model_variant"],
-                textposition="top center",
-                textfont=dict(family=FONT_MONO, size=11, color=INK),
-                marker=dict(
-                    color=INK,
-                    size=8 + 16 * comp_df["model_size_mb"] / max_size,
-                    line=dict(width=1, color=SURFACE),
-                ),
-                customdata=comp_df[["execution_mode", "model_size_mb", "throughput_msgs_per_min"]],
-                hovertemplate=(
-                    "%{text}<br>F1 %{y:.2%} · p95 %{x:.2f} s<br>"
-                    "%{customdata[0]} · %{customdata[1]:.1f} MB · %{customdata[2]:.1f} msg/min<extra></extra>"
-                ),
-                cliponaxis=False,
-            )
+    if comparison["mixed_samples"]:
+        st.warning(
+            "The selected runs were evaluated on different samples (dataset fingerprints differ or are missing): "
+            "their numbers are not directly comparable, and pairwise tests are only made within one sample."
         )
-        fig_f1_lat.update_layout(xaxis_title="p95 latency (s)", yaxis_title="threat F1")
-        fig_f1_lat.update_yaxes(tickformat=".0%")
-        plot(fig_f1_lat, caption="F1 vs p95 latency — up and to the left is better", height=380)
+    section_label("runs")
+    _summary_table(rows, comparison, profile_names)
+    st.download_button("Export comparison (CSV)", data=_csv(rows, profile_names),
+                       file_name="markerphish_comparison.csv", mime="text/csv")
 
-    with chart_col2:
-        # Throughput vs. model storage footprint (marker size = accuracy); one ink series per mode
-        modes = list(dict.fromkeys(comp_df["execution_mode"]))
-        traces = []
-        for idx, mode in enumerate(modes):
-            sub = comp_df[comp_df["execution_mode"] == mode]
-            traces.append(
-                go.Scatter(
-                    name=mode,
-                    x=sub["model_size_mb"],
-                    y=sub["throughput_msgs_per_min"],
-                    mode="markers+text",
-                    text=sub["model_variant"],
-                    textposition="top center",
-                    textfont=dict(family=FONT_MONO, size=11, color=INK),
-                    marker=dict(
-                        color=INK,
-                        symbol="circle" if idx == 0 else "circle-open",
-                        size=8 + 16 * sub["accuracy"],
-                        line=dict(width=1.5, color=INK if idx else SURFACE),
-                    ),
-                    customdata=sub[["accuracy"]],
-                    hovertemplate=(
-                        "%{text}<br>%{y:.1f} msg/min · %{x:.1f} MB<br>accuracy %{customdata[0]:.2%}"
-                        f"<br>{mode}<extra></extra>"
-                    ),
-                    cliponaxis=False,
-                )
-            )
-        fig_tput_size = go.Figure(traces)
-        fig_tput_size.update_layout(
-            xaxis_title="model size on disk (MB)",
-            yaxis_title="throughput (msg/min)",
-            showlegend=len(modes) > 2,
-        )
-        plot(fig_tput_size, caption="throughput vs model size — up and to the left is better", height=380)
-        if 1 < len(modes) <= 2:
-            marker_legend([(m, i == 0) for i, m in enumerate(modes)])
-
-    # ──────────────────────────────────────────────
-    # 4. Per-class performance breakdown
-    # ──────────────────────────────────────────────
-    section_title(
-        "By class",
-        "Channel-level F1 per run: phishing (email), smishing (SMS) and valid messages.",
-    )
-
-    class_series = [
-        ("phishing", "phishing_f1", CLASS_COLORS["phishing"]),
-        ("smishing", "smishing_f1", CLASS_COLORS["smishing"]),
-        ("valid", "valid_f1", CLASS_COLORS["valid"]),
-    ]
-    fig_class = go.Figure(
-        [
-            go.Bar(
-                name=name,
-                x=comp_df["run_label"],
-                y=comp_df[key],
-                marker=dict(color=color, line=dict(width=0)),
-                hovertemplate=f"%{{x}}<br>{name} F1 %{{y:.2%}}<extra></extra>",
-            )
-            for name, key, color in class_series
-        ]
-    )
-    fig_class.update_layout(barmode="group", yaxis_title="F1", showlegend=True, bargroupgap=0.05)
-    fig_class.update_yaxes(tickformat=".0%")
-    fig_class.update_xaxes(tickangle=-15)
-    plot(fig_class, caption="per-class F1", height=360)
-
-    with st.expander("per-class data table", expanded=False):
-        section_label("precision / recall / F1 per channel")
-        data_table(
-            [
-                "run",
-                "phishing P", "phishing R", "phishing F1",
-                "smishing P", "smishing R", "smishing F1",
-                "valid P", "valid R", "valid F1",
-            ],
-            [
-                [
-                    row.run_label,
-                    fmt_pct(row.phishing_precision), fmt_pct(row.phishing_recall), fmt_pct(row.phishing_f1),
-                    fmt_pct(row.smishing_precision), fmt_pct(row.smishing_recall), fmt_pct(row.smishing_f1),
-                    fmt_pct(row.valid_precision), fmt_pct(row.valid_recall), fmt_pct(row.valid_f1),
-                ]
-                for row in comp_df.itertuples(index=False)
-            ],
-            numeric=set(range(1, 10)),
-        )
+    render_recommendation(selected)
+    section_title("Trade-offs", "Detection against latency and memory for the selected runs.")
+    _tradeoff_charts(rows)
+    _per_class(selected, rows)

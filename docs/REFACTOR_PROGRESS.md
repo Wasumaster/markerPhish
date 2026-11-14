@@ -17,8 +17,8 @@ If a session restarts, resume from the first unchecked phase below.
 | 6. Batch mode | done 2026-11-14 (autonomous, committed); pilot NOT run (session rule 2) |
 | 7. Optimum analysis | done 2026-11-14 (autonomous, committed) |
 | 8. Non-LLM baseline | done 2026-11-14 (autonomous, committed) |
-| 9. UI | in progress (autonomous) |
-| 10. Documentation | not started |
+| 9. UI | done 2026-11-14 (autonomous, committed) |
+| 10. Documentation | in progress (autonomous) |
 | Final report | not started |
 
 Rules per phase: run tests, AppTest every tab, update this file, report, wait for "continue". Never commit.
@@ -76,6 +76,12 @@ D35. Baseline latency. What: one record at a time (vectorize + predict_proba), s
 D36. How to run it. What: an expander "non-LLM baseline" in the Run tab with a button that trains and evaluates on the current sample (seconds, never contacts Ollama), plus `python -m backend.baseline [--dataset] [--size] [--seed]`. Why: the user only uses the app (session rule 7). Revert: frontend/runner._render_baseline_button.
 D37. The baseline can win a profile. What: it is analysed like any other run (as specified) and labelled "(baseline)" in the recommendation and "baseline · trained in-distribution" in Compare; the caveat is in the report, the Run tab and OVERVIEW. Real check: F1 0.974 [unknown = error] on the seed+sms 1000 sample (email 0.952, SMS 0.996), 1.4 ms per message; the check's run file was deleted afterwards (not an earlier run).
 D38. Runs without a prompt. What: the manifest stores prompt_variant "baseline", no templates and prompt_template_hash null; result labels recognise "baseline".
+D39. Sample size stays in the sidebar. What: the 50 / 100 / 250 / 500 / 1000 / custom select remains in the sidebar (it also drives the Dataset tab); the Run tab shows the resulting size with its purpose ("smoke test, not for results" / "testing and pilot only" / "for results"), the per-cell counts, the fallback warning and the estimated time. Alternative: move the select into the Run tab (the Dataset tab would then need its own). Revert: frontend/runner configuration table.
+D40. Compare visibility. What: legacy and dev runs are hidden by default behind "show legacy and dev runs"; switching the toggle selects every offered run; shown hidden runs carry a faint "legacy" / "dev" mark, are never bold and never enter the recommendation; runs without a valid prediction are never bold. Revert: backend/compare.py rules.
+D41. Compare columns. What: model, quantization, prompt, options (only when options differ), start, n; F1 [CI], recall, precision, FPR, unknown %; p95, throughput, generation tokens/s; model memory, peak RSS, mean CPU; peak VRAM / GPU offload only when a selected run has GPU data; one "fits <profile>" column per configured profile. Prefill tokens/s is in the CSV and in Results (it is inflated by prompt caching, D2). Revert: frontend/multi_comparison._summary_table.
+D42. Charts scale. What: every Compare chart uses one ink colour (filled = may be best / Pareto, open = legacy / dev / dominated) and hover labels, no per-model colours or legend rows. The per-class bar chart keeps the three class colours of the design system.
+D43. Report loading cached per (results dir, file, mtime) in Compare and in the Run-tab estimate, so legacy runs are not re-bootstrapped on every rerun.
+D44. Results additions. What: "RAM / CPU over time" (process-tree RSS solid, CPU share dotted on a second axis; a note when a run has no samples) and ROC / precision-recall curves with AUC / AP for runs whose records carry a score (the baseline; LLM runs store hard labels, the optional log-prob scores were skipped).
 D11. Optional items skipped: base-rate precision, cost-weighted error, logprob scores / ROC / PR (session rule 1).
 
 ## Checklist
@@ -178,8 +184,14 @@ D11. Optional items skipped: base-rate precision, cost-weighted error, logprob s
 - [x] probability scores stored (ROC/PR shown in Phase 9 for runs with scores)
 - [x] appears in Compare + optimum analysis, labelled; in-distribution caveat (OVERVIEW in Phase 10)
 
-### Phases 9-10, final report
-See `docs/REFACTOR_TASK.md`; items are added here when the phase starts.
+### Phase 9: UI
+- [x] Compare: legacy/dev hidden behind a toggle, marked when shown, never best; all-unknown runs never best; full column set; GPU columns only with GPU data; fingerprint warning
+- [x] Results: detection with CI and both unknown modes, per channel, resources, RAM/CPU over time, ROC/PR when scores exist, hardware + manifest expanders
+- [x] Run: sample size (sidebar, D39) with per-cell counts, purpose label and estimated time; start select; loaded-models warning; advanced options; live ETA
+- [x] Dataset: preprocessing report (Phase 2)
+
+### Phase 10, final report
+See `docs/REFACTOR_TASK.md`.
 
 ## Phase log
 
@@ -357,4 +369,7 @@ Done: backend/optimum.py (eligibility, run_point, pareto_front, analyze, pairwis
 
 ### Phase 8 (2026-11-14, autonomous)
 Done: backend/baseline.py (training_split, train, evaluate, build_baseline_report, CLI); InferenceResult.score + raw_predictions.score; manifest without prompt; Run tab "non-LLM baseline" expander + button; Compare label. Tests: tests/test_baseline.py (6, incl. a real-data leakage check) + 1 AppTest (button -> one baseline run saved, no Ollama call). 287 tests pass. Real check: see D37 (run file deleted afterwards; results/ holds only the 6 legacy runs).
+
+### Phase 9 (2026-11-14, autonomous)
+Done: backend/compare.py (hidden_reason, has_valid_predictions, visible_runs, comparison_row, build_comparison, best_values); frontend/multi_comparison.py rewritten on it (toggle, marks, footnotes, CSV, mixed-sample warning, cached loading, scatters, per-class); Results: resource timeline + score curves (backend.detection.score_curves); Run tab: purpose / per-cell / estimate rows (experiment.estimate_run_seconds, format_duration). Tests: tests/test_compare.py (5) + 5 AppTests + score_curves test. 296 tests pass; live AppTest: 4 tabs, no errors, nothing loaded.
 

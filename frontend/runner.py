@@ -16,10 +16,12 @@ import streamlit as st
 from backend.baseline import BASELINE_NAME, BASELINE_VARIANT, build_baseline_report
 from backend.baseline import CAVEAT as BASELINE_CAVEAT
 from backend.evaluator import loaded_models, other_loaded_models, run_evaluation
+from backend.experiment import estimate_run_seconds, format_duration, measured_seconds_per_record
+from backend.sampling import sample_size_purpose
 from backend.manifest import model_details
 from backend.options import CONFIGURABLE, OptionsError, resolve_options
 from backend.run_report import build_run_report
-from backend.utils import logger, save_results
+from backend.utils import list_saved_result_files, logger, save_results
 from config import (
     ACTIVE_PROMPT_VARIANT,
     DEFAULT_START_MODE,
@@ -67,6 +69,13 @@ def render_evaluation_runner(
     # ──────────────────────────────────────────────
     # 1. Configuration
     # ──────────────────────────────────────────────
+    sample_info = st.session_state.get("sample_info") or {}
+    cells = " · ".join(f"{c['channel']} {c['label']} {c['count']}" for c in sample_info.get("cells") or [])
+    purpose = sample_size_purpose(len(df_eval))
+    purpose_text = {"smoke": "smoke test, not for results", "pilot": "testing and pilot only",
+                    "results": "for results"}[purpose]
+    seconds, quality = estimate_run_seconds(selected_model, prompt_variant, len(df_eval), _measured_latencies())
+    estimate = f"{format_duration(seconds)} ({'measured on earlier runs' if quality == 'measured' else 'rough: no earlier run of this model and prompt'})"
     with st.container():
         section_label("configuration")
         kv_table(
@@ -75,11 +84,15 @@ def render_evaluation_runner(
                 ("prompt", prompt_variant),
                 ("prompt description", PROMPT_VARIANTS.get(prompt_variant, {}).get("description", "—")),
                 ("environment", mode_display_name),
-                ("messages", f"{len(df_eval):,}"),
+                ("messages", f"{len(df_eval):,} · {purpose_text}"),
+                ("per cell", cells or "—"),
+                ("estimated time", estimate),
                 ("task", "binary threat classification (malicious vs. valid)"),
             ],
             headers=("setting", "value"),
         )
+        if sample_info.get("fallback"):
+            st.warning(sample_info["fallback_reason"])
 
     start_col, _ = st.columns([1, 2])
     with start_col:
@@ -157,6 +170,13 @@ def _render_baseline_button(df_eval: pd.DataFrame) -> None:
         st.session_state["loaded_filename"] = name
         f1 = report["detection"]["overall"]["unknown_as_error"]["f1"]
         st.success(f"Baseline saved to {filepath} (F1 {f1}).")
+
+
+def _measured_latencies() -> dict:
+    """(model, prompt variant) -> seconds per record from earlier non-inflated protocol-2 runs."""
+    from frontend.multi_comparison import load_reports
+
+    return measured_seconds_per_record(list(load_reports(list_saved_result_files()).values()))
 
 
 @st.cache_data(ttl=300, show_spinner=False)

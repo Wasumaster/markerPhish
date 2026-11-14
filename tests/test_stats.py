@@ -195,3 +195,15 @@ def test_compare_runs_pairs_by_source_id():
     r = compare_runs(a, b)
     assert r["comparable"] and r["only_a_correct"] == 12 and r["only_b_correct"] == 0
     assert r["p_value"] < 0.001
+
+
+def test_score_curves():
+    from backend.detection import score_curves
+
+    raw = [{"true_binary": "malicious", "score": 0.9}, {"true_binary": "malicious", "score": 0.4},
+           {"true_binary": "safe", "score": 0.3}, {"true_binary": "safe", "score": 0.1}]
+    c = score_curves(raw)
+    assert c["roc"]["auc"] == 1.0 and c["pr"]["average_precision"] == 1.0 and c["n"] == 4
+    assert score_curves([{"true_binary": "malicious", "predicted_binary": "malicious"}]) is None  # hard labels only
+    assert score_curves([{"true_binary": "safe", "score": 0.2}, {"true_binary": "safe", "score": 0.3}]) is None
+
