@@ -40,8 +40,6 @@ def run_label(point: dict) -> str:
     label = f"{point.get('model') or DASH} [{point.get('prompt_variant') or DASH}]"
     if point.get("options"):
         label += f" {point['options']}"
-    if point.get("is_baseline"):
-        label += " (baseline)"
     return label
 
 

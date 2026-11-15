@@ -4,8 +4,10 @@ MarkerPhish — Optimum analysis (pure functions)
 Which configuration (model + prompt variant + inference options) is the best
 choice for a resource-constrained deployment?
 
-1. Eligibility. Only runs with protocol_version 2, not dev, with at least one
-   valid prediction and on the same dataset_fingerprint enter the analysis.
+1. Eligibility. Only language-model runs with protocol_version 2, not dev,
+   with at least one valid prediction and on the same dataset_fingerprint enter
+   the analysis. The non-LLM baseline is excluded: it is trained in-distribution
+   and serves as a reference point only, never as a recommendation.
    The reference fingerprint is the one shared by most eligible runs (ties:
    the most recent run). Every excluded run is listed with its reason.
 2. Pareto front over three criteria: F1 (unknown = error) higher is better,
@@ -71,6 +73,8 @@ def eligibility(reports: dict[str, dict]) -> tuple[dict[str, dict], list[dict], 
     for name, rep in reports.items():
         if report_protocol_version(rep) < 2:
             excluded.append({"file": name, "reason": "legacy run (protocol 1)"})
+        elif rep.get("baseline"):
+            excluded.append({"file": name, "reason": "non-LLM baseline (reference only, not recommended)"})
         elif report_is_dev(rep):
             excluded.append({"file": name, "reason": "dev run (made during the refactor)"})
         elif not _valid_predictions(rep):

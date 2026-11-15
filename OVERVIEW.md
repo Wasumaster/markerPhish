@@ -429,8 +429,9 @@ flagged.
 
 **Optimum analysis** (`backend/optimum.analyze`):
 
-1. Eligible runs: protocol 2, not dev, at least one valid prediction, on the same dataset fingerprint (the
-   fingerprint shared by most eligible runs; ties: the most recent). Every excluded run is listed with the reason.
+1. Eligible runs: language-model runs with protocol 2, not dev, at least one valid prediction, on the same
+   dataset fingerprint (the fingerprint shared by most eligible runs; ties: the most recent). The non-LLM baseline
+   is **excluded from the recommendation** (§10). Every excluded run is listed with the reason.
 2. Pareto front over F1 (unknown = error) ↑, model memory ↓, P95 latency ↓: a run is on the front when no other
    run is at least as good in all three and better in one.
 3. Per profile: feasible runs; winner = highest F1, ties broken by lower model memory, then lower P95.
@@ -463,7 +464,8 @@ seed), decision threshold 0.5.
 **Caveat:** the baseline is trained **in-distribution**, on the same datasets the sample is drawn from, while the
 language models were never trained on them. Its numbers are a reference point, not a fair contest (on the
 1,000-record `seed+sms` sample: F1 0.974, about 1.4 ms per message). Compare labels it
-"baseline · trained in-distribution".
+"baseline · trained in-distribution". It is therefore **excluded from the recommendation**: it never enters the
+Pareto front or a profile's ranking and is listed among the excluded runs ("non-LLM baseline").
 
 ---
 

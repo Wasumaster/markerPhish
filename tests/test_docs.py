@@ -27,6 +27,7 @@ def _read(name):
     "## 14. Adding a new model",
     "trained **in-distribution**",
     "does **not** mean equivalent",
+    "**excluded from the recommendation**",
 ])
 def test_overview_states_the_current_values(text):
     assert text in _read("OVERVIEW.md")

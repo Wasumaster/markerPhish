@@ -42,7 +42,7 @@ Start the app with `run.bat` (Windows) or `streamlit run app.py`, then open `htt
 3. **Run:** check the configuration (per-cell counts, estimated time), the start mode (warm / cold), the
    loaded-models warning, optionally the "advanced" inference options, then **Run evaluation**. The
    "non-LLM baseline" expander trains and evaluates a TF-IDF + logistic regression reference on the same sample
-   in seconds.
+   in seconds. It is shown in Compare as a reference point but is excluded from the recommendation.
 4. **Results:** detection with confidence intervals, per channel, cost, resources over time, hardware and manifest.
 5. **Compare:** all runs side by side, the recommendation per constraint profile, the Pareto chart and pairwise
    McNemar tests.

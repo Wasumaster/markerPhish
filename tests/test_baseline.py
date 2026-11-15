@@ -65,14 +65,15 @@ def test_baseline_report_has_the_normal_run_format(results_dir):
     assert name in list_saved_result_files() and loaded["latency_inflated"] is False
 
 
-def test_baseline_enters_the_optimum_analysis():
+def test_baseline_is_excluded_from_the_optimum_analysis():
     df = _corpus()
     sample = balanced_sample(df, 40)
     report = baseline.build_baseline_report(df, sample.df, sample.info, "seed+sms", sampler_factory=_sampler,
                                             code={"commit": None, "dirty": None, "changed_files": None})
     out = analyze({"b": report}, {"p": {"ram_gb": 8}}, 0.5)
-    assert out["points"]["b"]["is_baseline"] is True
-    assert out["per_profile"]["p"]["winner"] == "b"
+    assert out["points"] == {} and out["pareto"] == [] and out["reference_fingerprint"] is None
+    assert out["per_profile"]["p"]["winner"] is None
+    assert out["excluded"] == [{"file": "b", "reason": "non-LLM baseline (reference only, not recommended)"}]
 
 
 def test_one_class_training_data_is_refused():
