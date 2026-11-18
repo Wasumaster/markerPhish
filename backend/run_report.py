@@ -24,7 +24,7 @@ def build_run_report(
     dataset_choice: str | None,
     sample_info: dict | None,
     hardware_profile: dict | None = None,
-    execution_mode: str = "CPU Safe Mode",
+    execution_mode: str = "CPU",
     **collectors,
 ) -> dict:
     """

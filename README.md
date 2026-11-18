@@ -40,7 +40,8 @@ Start the app with `run.bat` (Windows) or `streamlit run app.py`, then open `htt
    sizes below 500 are for testing and the pilot only).
 2. **Dataset:** the sample and the preprocessing report (spam removed, duplicates, truncation, records per cell).
 3. **Run:** check the configuration (per-cell counts, estimated time), the start mode (warm / cold), the
-   loaded-models warning, optionally the "advanced" inference options, then **Run evaluation**. The
+   loaded-models warning, optionally the "advanced" options (device CPU or GPU, default CPU; inference
+   options), then **Run evaluation**. The
    "non-LLM baseline" expander trains and evaluates a TF-IDF + logistic regression reference on the same sample
    in seconds. It is shown in Compare as a reference point but is excluded from the recommendation.
 4. **Results:** detection with confidence intervals, per channel, cost, resources over time, hardware and manifest.

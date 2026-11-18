@@ -330,7 +330,7 @@ def build_inference_config(prompt_variant: str) -> dict:
 def build_full_report(
     run: "EvaluationRun",
     hardware_profile: dict | None = None,
-    execution_mode: str = "CPU Safe Mode",
+    execution_mode: str = "CPU",
 ) -> dict:
     """
     Build a comprehensive evaluation report combining binary classification metrics,

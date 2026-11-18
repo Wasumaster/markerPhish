@@ -30,6 +30,7 @@ from backend.manifest import (
     report_power_warning,
 )
 from backend.compare import dataset_label
+from backend.hardware import execution_mode_label
 from config import LEGACY_PROMPT_VARIANT, is_binary_match
 from ui.components import (
     DASH,
@@ -73,7 +74,7 @@ def render_results(report: dict) -> None:
     if cls.get("unknown_predictions") == cls.get("total_evaluated") and cls.get("total_evaluated", 0) > 0:
         st.error(
             "All model inferences returned 'unknown' or timed out. "
-            "If using Pascal architecture GPUs, ensure 'CPU Safe Mode' is enabled in the sidebar."
+            "If using Pascal architecture GPUs, set the device to CPU (Run tab, advanced)."
         )
 
     power_warning = report_power_warning(report)
@@ -573,7 +574,7 @@ def render_single_run_view() -> None:
 
     report = st.session_state.get("report")
     if report:
-        env_str = report.get("execution_mode", "CPU Safe Mode")
+        env_str = execution_mode_label(report.get("execution_mode"))
         target_model = report.get("model_name", "Unknown Model")
         variant_str = report_prompt_variant(report)
         dataset_str = dataset_label(report)

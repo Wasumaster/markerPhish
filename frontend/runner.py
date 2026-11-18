@@ -16,6 +16,7 @@ import streamlit as st
 from backend.baseline import BASELINE_NAME, BASELINE_VARIANT, build_baseline_report
 from backend.baseline import CAVEAT as BASELINE_CAVEAT
 from backend.evaluator import loaded_models, other_loaded_models, run_evaluation
+from backend.hardware import DEFAULT_DEVICE, DEVICE_OPTIONS, resolve_num_gpu
 from backend.experiment import estimate_run_seconds, format_duration, measured_seconds_per_record
 from backend.sampling import sample_size_purpose
 from backend.manifest import model_details
@@ -39,6 +40,15 @@ from ui.components import (
 )
 from ui.theme import MALICIOUS, SAFE
 
+# Session key of the device radio in the "advanced" expander.
+DEVICE_KEY = "device_choice"
+DEVICE_HELP = (
+    "CPU: the whole model runs on the processor (num_gpu = 0). Results do not depend on graphics drivers, "
+    "and this is the setting used for all thesis measurements. "
+    "GPU: offloads model layers to an NVIDIA GPU if one is available."
+)
+NO_GPU_NOTE = "No NVIDIA GPU detected: GPU mode would fall back to CPU on this machine."
+
 
 def render_evaluation_runner(
     selected_model: str,
@@ -53,11 +63,18 @@ def render_evaluation_runner(
     Args:
         selected_model: Name of the Ollama model to evaluate.
         df_eval: DataFrame containing the dataset records to evaluate.
-        num_gpu: GPU offloading setting (0 for CPU Safe Mode, None for auto/GPU).
-        mode_display_name: Human-readable execution mode string.
+        num_gpu: Default GPU offloading setting (0 for CPU, None for auto/GPU). The device
+            choice in the "advanced" expander overrides it once the user has made one.
+        mode_display_name: Default execution mode label ("CPU" / "GPU"), overridden likewise.
         prompt_variant: Prompt variant key from config.PROMPT_VARIANTS (active variant if None).
     """
     prompt_variant = prompt_variant or ACTIVE_PROMPT_VARIANT
+    # The device radio is rendered further down (in "advanced"); its value is
+    # already in session state on every rerun, so the configuration table shows it.
+    if st.session_state.get(DEVICE_KEY) in DEVICE_OPTIONS:
+        num_gpu, mode_display_name = resolve_num_gpu(st.session_state[DEVICE_KEY])
+    elif mode_display_name is None:
+        num_gpu, mode_display_name = resolve_num_gpu(DEFAULT_DEVICE)
 
     page_title(
         "Run",
@@ -119,7 +136,9 @@ def render_evaluation_runner(
             "unload other models before the run (recommended)", value=DEFAULT_UNLOAD_OTHER_MODELS
         )
 
-    user_options, options_error = _render_advanced_options(selected_model, df_eval, prompt_variant, num_gpu)
+    user_options, options_error, num_gpu, mode_display_name = _render_advanced_options(
+        selected_model, df_eval, prompt_variant, num_gpu
+    )
 
     col_btn, _ = st.columns([1, 2])
     with col_btn:
@@ -195,10 +214,36 @@ _OPTION_HELP = {
 }
 
 
+def _render_device_choice() -> tuple[int | None, str]:
+    """CPU / GPU radio (default CPU) with the no-GPU note. Returns (num_gpu, display label)."""
+    if DEVICE_KEY in st.session_state and st.session_state[DEVICE_KEY] not in DEVICE_OPTIONS:
+        del st.session_state[DEVICE_KEY]
+    choice = st.radio(
+        "device",
+        options=list(DEVICE_OPTIONS),
+        index=list(DEVICE_OPTIONS).index(DEFAULT_DEVICE),
+        horizontal=True,
+        help=DEVICE_HELP,
+        key=DEVICE_KEY,
+    )
+    hw = st.session_state.get("hardware_profile")
+    if hw is not None and not getattr(hw, "has_gpu", False):
+        note(NO_GPU_NOTE)
+    num_gpu, mode_display_name = resolve_num_gpu(choice)
+    # Factual feedback on the selected device
+    if num_gpu == 0:
+        text = "num_gpu=0: inference runs on CPU threads only, for reproducibility and no CUDA runtime crashes."
+    else:
+        text = "CUDA offloading enabled. If CUDA toolchain or PTX errors occur, switch back to CPU."
+    note(text)
+    return num_gpu, mode_display_name
+
+
 def _render_advanced_options(model_name: str, df_eval: pd.DataFrame, prompt_variant: str, num_gpu) -> tuple:
-    """The 'advanced' expander. Returns (user options, True if they are invalid)."""
+    """The 'advanced' expander. Returns (user options, True if they are invalid, num_gpu, device label)."""
     cores = psutil.cpu_count(logical=True) or 1
     with st.expander("advanced", expanded=False):
+        num_gpu, mode_display_name = _render_device_choice()
         cols = st.columns(len(CONFIGURABLE))
         values = {}
         for col, name in zip(cols, CONFIGURABLE):
@@ -227,12 +272,12 @@ def _render_advanced_options(model_name: str, df_eval: pd.DataFrame, prompt_vari
             )
         except OptionsError as exc:
             st.error(str(exc))
-            return user, True
+            return user, True, num_gpu, mode_display_name
         sent = ", ".join(f"{k}={v}" for k, v in resolved.options.items())
         note(f"Options sent to Ollama: {sent}. Temperature and seed are fixed.", mono=False)
         for line in resolved.notes:
             note(line)
-    return user, False
+    return user, False, num_gpu, mode_display_name
 
 
 def _execute_run(

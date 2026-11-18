@@ -3,7 +3,7 @@ MarkerPhish — Hardware Resource Detection & Execution Environment
 ==================================================================
 Hardware discovery and execution environment management for LLM evaluations.
 Scans host CPU, memory, and NVIDIA GPU accelerators to guide optimal device
-selection (CPU Safe Mode vs. GPU Acceleration).
+selection (CPU vs. GPU).
 """
 
 from __future__ import annotations
@@ -190,7 +190,7 @@ def scan_hardware() -> HardwareProfile:
         reason = (
             f"Detected {gpu_name} ({vram_mb} MB VRAM, Compute {compute_cap}). "
             "Pascal architecture (sm_61) with limited VRAM is susceptible to Ollama CUDA PTX toolchain buffer overruns. "
-            "CPU Safe Mode is recommended for guaranteed numerical stability and reproducible evaluation."
+            "CPU is recommended for guaranteed numerical stability and reproducible evaluation."
         )
     else:
         recommended_mode = "gpu"
@@ -217,9 +217,25 @@ def scan_hardware() -> HardwareProfile:
     )
 
 
+# Device choices offered in the UI (Run tab, "advanced"). The first one is the default.
+DEVICE_OPTIONS = ("CPU", "GPU")
+DEFAULT_DEVICE = "CPU"
+
+# Labels stored in the execution_mode field of runs made before the rename.
+_LEGACY_DEVICE_LABELS = {
+    "cpu safe mode": "CPU",
+    "cpu safe mode (recommended)": "CPU",
+    "gpu hardware accelerated": "GPU",
+    "gpu hardware acceleration": "GPU",
+}
+
+
 def resolve_num_gpu(execution_mode: str) -> tuple[int | None, str]:
     """
     Map the selected UI execution mode to Ollama's num_gpu option and display label.
+
+    Accepts the current labels ("CPU", "GPU") and the old ones ("CPU Safe Mode
+    (Recommended)", "GPU Hardware Acceleration").
 
     Returns:
         tuple[int | None, str]: (num_gpu, display_name)
@@ -227,5 +243,12 @@ def resolve_num_gpu(execution_mode: str) -> tuple[int | None, str]:
     """
     mode_lower = execution_mode.lower()
     if "cpu" in mode_lower:
-        return 0, "CPU Safe Mode"
-    return None, "GPU Hardware Accelerated"
+        return 0, "CPU"
+    return None, "GPU"
+
+
+def execution_mode_label(execution_mode: str | None) -> str:
+    """Display label of a stored execution_mode: old 'CPU Safe Mode' -> 'CPU', 'GPU Hardware ...' -> 'GPU'."""
+    if not execution_mode:
+        return DEFAULT_DEVICE
+    return _LEGACY_DEVICE_LABELS.get(execution_mode.strip().lower(), execution_mode)

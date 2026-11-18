@@ -232,7 +232,10 @@ the per-request check in section 5.3 and the optional per-model calibration (sec
 ### 5.1 Fixed settings
 
 Every request: `temperature = 0`, `top_p = 1`, `seed = 42`, `stream = false`, the JSON Schema `format`.
-`num_gpu = 0` (CPU) unless the GPU mode is selected. Results are deterministic at temperature 0 (two runs of one
+`num_gpu = 0` (CPU) unless GPU is chosen as the device (Run tab, "advanced"; default CPU). CPU runs the whole
+model on the processor, so results do not depend on graphics drivers; GPU offloads model layers to an NVIDIA GPU
+if one is available and otherwise falls back to CPU. Runs stored with the old device labels are shown as CPU or
+GPU. Results are deterministic at temperature 0 (two runs of one
 model on the same 50 records gave identical answers). The Ollama URL is `http://127.0.0.1:11434`
 (`MARKERPHISH_OLLAMA_URL` overrides it); see section 13.3 for why not `localhost`.
 

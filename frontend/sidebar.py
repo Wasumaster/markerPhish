@@ -2,7 +2,8 @@
 MarkerPhish — Sidebar Component
 =================================
 Renders the application sidebar with model selection, prompt variant, dataset
-configuration and execution environment controls.
+configuration and the hardware summary. The device choice (CPU / GPU) lives in
+the Run tab's "advanced" expander (frontend/runner.py).
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ import streamlit as st
 
 from backend.data_loader import DATASET_CHOICES
 from backend.evaluator import check_ollama_connection, list_available_models
-from backend.hardware import resolve_num_gpu
+from backend.hardware import DEFAULT_DEVICE, resolve_num_gpu
 from backend.sampling import sample_size_purpose
 from config import (
     ACTIVE_PROMPT_VARIANT,
@@ -43,6 +44,8 @@ def render_sidebar() -> tuple:
     Returns:
         tuple: (selected_model, dataset_choice, sample_size, num_gpu, mode_display_name, prompt_variant)
                or (None, None, None, None, None, None) if configuration is incomplete.
+               num_gpu and mode_display_name are the default device (CPU); the Run tab's
+               "advanced" device choice decides what a run uses.
     """
     hw = st.session_state["hardware_profile"]
     st.session_state[_DATASET_SLOT_KEY] = None
@@ -153,36 +156,8 @@ def render_sidebar() -> tuple:
                 unsafe_allow_html=True,
             )
 
-        with st.container():
-            # Execution Mode Selection
-            device_options = ["CPU Safe Mode (Recommended)", "GPU Hardware Acceleration"]
-            default_index = 0 if hw.recommended_mode == "cpu" else 1
-
-            selected_mode_str = st.radio(
-                "device",
-                options=device_options,
-                index=default_index,
-                help=(
-                    "CPU Safe Mode executes inference on host processor (num_gpu=0), "
-                    "guaranteeing stability on Pascal (sm_61) GPUs and avoiding CUDA PTX buffer overruns. "
-                    "GPU Acceleration enables CUDA device offloading."
-                ),
-            )
-
-            num_gpu, mode_display_name = resolve_num_gpu(selected_mode_str)
-
-            # Factual feedback on selected mode
-            if num_gpu == 0:
-                text = (
-                    "num_gpu=0: inference runs on CPU threads only, for reproducibility "
-                    "and no CUDA runtime crashes."
-                )
-            else:
-                text = (
-                    "CUDA offloading enabled. If CUDA toolchain or PTX errors occur, "
-                    "switch back to CPU Safe Mode."
-                )
-            st.markdown(f'<p class="mp-sidebar-line-sans">{esc(text)}</p>', unsafe_allow_html=True)
+        # The device choice moved to the Run tab ("advanced"); the sidebar returns the default.
+        num_gpu, mode_display_name = resolve_num_gpu(DEFAULT_DEVICE)
 
         return selected_model, dataset_choice, sample_size, num_gpu, mode_display_name, prompt_variant
 

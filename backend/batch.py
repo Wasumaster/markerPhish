@@ -194,7 +194,7 @@ def run_batch(path: str, dry_run: bool = False, sampler_factory=None, out=print)
                     df_sample=sample.df,
                     dataset_choice=experiment.dataset,
                     sample_info=sample.info,
-                    execution_mode="CPU Safe Mode" if DEFAULT_NUM_GPU == 0 else "GPU Hardware Accelerated",
+                    execution_mode="CPU" if DEFAULT_NUM_GPU == 0 else "GPU",
                 )
                 report["batch"] = {
                     "batch_id": bid,
