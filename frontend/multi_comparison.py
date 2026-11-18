@@ -16,7 +16,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from backend import utils as backend_utils
-from backend.compare import best_values, build_comparison, hidden_reason, visible_runs
+from backend.compare import NO_DATASET, best_values, build_comparison, dataset_label, hidden_reason, visible_runs
 from backend.utils import ensure_report_compatibility, list_saved_result_files, load_result_by_filename
 from config import CONSTRAINT_PROFILES
 from frontend.recommendation import render_recommendation
@@ -45,6 +45,7 @@ from ui.theme import CLASS_COLORS, INK, SURFACE
 # Session-state key of the run multiselect.
 _SELECTION_KEY = "compare_selected_files"
 _SHOW_HIDDEN_KEY = "compare_show_hidden"
+_DATASET_KEY = "compare_dataset_filter"
 
 
 def select_all_runs(available_files: list[str]) -> None:
@@ -71,6 +72,11 @@ def load_reports(files: list[str]) -> dict[str, dict]:
         if rep:
             out[f] = rep
     return out
+
+
+def default_dataset_filter(available_files: list[str], reports: dict[str, dict]) -> list[str]:
+    """The dataset of the most recent offered run (files are sorted newest first)."""
+    return [dataset_label(reports[available_files[0]])] if available_files else []
 
 
 def _pct1(value) -> str:
@@ -102,7 +108,7 @@ def _summary_table(rows: list[dict], comparison: dict, profile_names: list[str])
     best = {key: best_values(rows, key, pref) for _, key, _, pref in spec if pref}
     latency_keys = {"p95_latency_s", "throughput", "generation_tps"}
 
-    lead = ["model", "quantization", "prompt"]
+    lead = ["model", "quantization", "prompt", "dataset"]
     if comparison["differing_options"]:
         lead.append("options")
     lead += ["start", "n"]
@@ -114,11 +120,13 @@ def _summary_table(rows: list[dict], comparison: dict, profile_names: list[str])
             marks.append(row["hidden"])
         if row["baseline"]:
             marks.append("baseline · trained in-distribution")
-        if not row["can_be_best"] and not row["hidden"]:
+        if row["sample_mismatch"]:
+            marks.append("other sample")
+        elif not row["can_be_best"] and not row["hidden"]:
             marks.append("no valid prediction")
         model_html = esc(row["model"] or DASH) + "".join(f' <span class="mp-faint">{esc(m)}</span>' for m in marks)
         cells = [cell(f'<span class="nowrap">{model_html}</span>', raw=True), row["quantization"] or DASH,
-                 row["prompt"] or DASH]
+                 row["prompt"] or DASH, row["dataset"] or NO_DATASET]
         if comparison["differing_options"]:
             cells.append(row["options"] or DASH)
         cells += [row["start"] or DASH, fmt_int(row["n"])]
@@ -139,6 +147,9 @@ def _summary_table(rows: list[dict], comparison: dict, profile_names: list[str])
         footnotes.append("* Latency inflated by about 2 s per request (run made before the Ollama URL fix).")
     if any(r["hidden"] for r in rows):
         footnotes.append("Legacy and dev runs are shown for reference only: never bold, never recommended.")
+    if any(r["sample_mismatch"] for r in rows):
+        footnotes.append("Runs marked \"other sample\" use another dataset or sample than the reference: "
+                         "never bold, never recommended.")
     note(" ".join(footnotes))
 
 
@@ -158,7 +169,21 @@ def _run_label(row: dict) -> str:
     label = f"{row['model']} [{row['prompt']}]"
     if row["options"]:
         label += f" {row['options']}"
+    label += f" · {row['dataset'] or NO_DATASET}"
     return label
+
+
+def _mismatch_detail(comparison: dict, chip_labels: dict[str, str]) -> str:
+    """' Reference: dataset X, sample abc123. Other dataset or sample: run; run. ...' (empty if none)."""
+    ref = comparison.get("reference") or {}
+    others = comparison.get("mismatched") or []
+    if not others:
+        return ""
+    fp = (ref.get("fingerprint") or "")[:12] or "none"
+    by_file = {r["file"]: r for r in comparison["rows"]}
+    named = "; ".join(f"{chip_labels.get(f, f)} (dataset {by_file[f]['dataset'] or NO_DATASET})" for f in others)
+    return (f" Reference: dataset {ref.get('dataset') or NO_DATASET}, sample {fp}. "
+            f"On another dataset or sample: {named}. These runs are never bold and are not recommended.")
 
 
 def _tradeoff_charts(rows: list[dict]) -> None:
@@ -236,17 +261,39 @@ def render_multi_comparison_view() -> None:
     chip_labels = {
         f: run_chip_label(f, reports[f].get("model_name"),
                           (reports[f].get("manifest") or {}).get("prompt", {}).get("prompt_variant")
-                          or reports[f].get("prompt_variant") or "legacy", "legacy")
+                          or reports[f].get("prompt_variant") or "legacy", "legacy", dataset_label(reports[f]))
         + (f" [{hidden_reason(reports[f])}]" if hidden_reason(reports[f]) else "")
         for f in available_files
     }
 
+    # Dataset filter: by default only runs on the dataset of the most recent run.
+    # Values no longer offered are dropped (a widget value outside its options raises).
+    dataset_of = {f: dataset_label(reports[f]) for f in available_files}
+    dataset_options = list(dict.fromkeys(dataset_of[f] for f in available_files))
+    if _DATASET_KEY not in st.session_state:
+        st.session_state[_DATASET_KEY] = default_dataset_filter(available_files, reports)
+    else:
+        kept = [d for d in st.session_state[_DATASET_KEY] if d in dataset_options]
+        st.session_state[_DATASET_KEY] = kept or default_dataset_filter(available_files, reports)
+    selected_datasets = st.multiselect(
+        "dataset",
+        options=dataset_options,
+        key=_DATASET_KEY,
+        help="Only runs on these datasets are offered below. Runs on different datasets are not comparable.",
+    )
+    if not selected_datasets:
+        st.warning("Select at least one dataset.")
+        return
+    available_files = [f for f in available_files if dataset_of[f] in selected_datasets]
+
     # The multiselect owns its state under _SELECTION_KEY. Initialise it once, and
     # drop files that are not offered (a widget value outside its options raises).
-    # Switching the legacy/dev toggle re-selects every run that is now offered.
+    # Switching the legacy/dev toggle or the dataset filter re-selects every run that is now offered.
     toggled = st.session_state.get("_compare_show_hidden_prev") != show_hidden
     st.session_state["_compare_show_hidden_prev"] = show_hidden
-    if _SELECTION_KEY not in st.session_state or toggled:
+    filtered = st.session_state.get("_compare_dataset_prev") != sorted(selected_datasets)
+    st.session_state["_compare_dataset_prev"] = sorted(selected_datasets)
+    if _SELECTION_KEY not in st.session_state or toggled or filtered:
         st.session_state[_SELECTION_KEY] = list(available_files)
     else:
         kept = [f for f in st.session_state[_SELECTION_KEY] if f in available_files]
@@ -279,6 +326,7 @@ def render_multi_comparison_view() -> None:
         st.warning(
             "The selected runs were evaluated on different samples (dataset fingerprints differ or are missing): "
             "their numbers are not directly comparable, and pairwise tests are only made within one sample."
+            + _mismatch_detail(comparison, chip_labels)
         )
     section_label("runs")
     _summary_table(rows, comparison, profile_names)

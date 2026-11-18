@@ -45,7 +45,9 @@ Start the app with `run.bat` (Windows) or `streamlit run app.py`, then open `htt
    in seconds. It is shown in Compare as a reference point but is excluded from the recommendation.
 4. **Results:** detection with confidence intervals, per channel, cost, resources over time, hardware and manifest.
 5. **Compare:** all runs side by side, the recommendation per constraint profile, the Pareto chart and pairwise
-   McNemar tests.
+   McNemar tests. A dataset filter (default: the dataset of the most recent run) and a dataset column keep
+   runs on different data apart; if the selected runs differ in dataset or sample, a warning names them and
+   they are never bold and never recommended.
 
 Optional: `python -m backend.calibrate <model>` measures the model's tokenizer density (at most three requests)
 for the context check. Without it the app uses a conservative default and shows a note.

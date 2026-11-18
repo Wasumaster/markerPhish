@@ -29,6 +29,7 @@ from backend.manifest import (
     manifest_summary,
     report_power_warning,
 )
+from backend.compare import dataset_label
 from config import LEGACY_PROMPT_VARIANT, is_binary_match
 from ui.components import (
     DASH,
@@ -575,13 +576,14 @@ def render_single_run_view() -> None:
         env_str = report.get("execution_mode", "CPU Safe Mode")
         target_model = report.get("model_name", "Unknown Model")
         variant_str = report_prompt_variant(report)
+        dataset_str = dataset_label(report)
 
         with st.container():
             section_label("active report")
             html_block(
                 '<p class="mp-sidebar-line" style="margin:0;">'
                 f'<span class="mp-mono" style="color:{INK};">{esc(selected_file)}</span> · '
-                f"model {esc(target_model)} · prompt {esc(variant_str)} · {esc(env_str)}</p>"
+                f"model {esc(target_model)} · prompt {esc(variant_str)} · dataset {esc(dataset_str)} · {esc(env_str)}</p>"
             )
 
         render_results(report)

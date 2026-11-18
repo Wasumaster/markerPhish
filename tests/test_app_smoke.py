@@ -38,6 +38,8 @@ def test_offline_ollama_shows_message_instead_of_crashing(fake_ollama, legacy_re
 def test_compare_select_all_selects_every_run(app, legacy_results_dir):
     files = sorted(f for f in os.listdir(legacy_results_dir) if f.endswith(".json"))
     app.toggle(key="compare_show_hidden").set_value(True).run()  # the stored runs are all legacy
+    datasets = next(m for m in app.multiselect if m.label == "dataset")
+    datasets.set_value(list(datasets.options)).run()  # the filter offers only the newest run's dataset by default
     runs = next(m for m in app.multiselect if m.label == "runs")
     runs.set_value([files[0]]).run()
     runs = next(m for m in app.multiselect if m.label == "runs")

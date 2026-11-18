@@ -13,6 +13,7 @@ import copy
 import plotly.graph_objects as go
 import streamlit as st
 
+from backend.compare import dataset_label
 from backend.optimum import ALPHA, analyze, pairwise_pvalues
 from backend.stats import holm
 from config import CONSTRAINT_PROFILES, MEMORY_HEADROOM_FACTOR
@@ -35,12 +36,30 @@ _PROFILES_KEY = "constraint_profiles_edit"
 _HEADROOM_KEY = "constraint_headroom_edit"
 
 
-def run_label(point: dict) -> str:
-    """'model [variant] options' (no fixed names, works for any model)."""
+def run_label(point: dict, dataset: str | None = None) -> str:
+    """'model [variant] options · dataset' (no fixed names, works for any model)."""
     label = f"{point.get('model') or DASH} [{point.get('prompt_variant') or DASH}]"
     if point.get("options"):
         label += f" {point['options']}"
+    if dataset:
+        label += f" · {dataset}"
     return label
+
+
+def excluded_rows(excluded: list[dict], reports: dict[str, dict], reference_dataset: str | None) -> list[list[str]]:
+    """[run, dataset, reason] per excluded run; a dataset or sample mismatch names both datasets."""
+    rows = []
+    for e in excluded:
+        ds = dataset_label(reports.get(e["file"]) or {})
+        reason = e["reason"]
+        if reason.startswith("different dataset fingerprint"):
+            ref = reference_dataset or DASH
+            reason += (f": dataset {ds}, recommendation uses {ref}" if ds != ref
+                       else f": same dataset ({ds}) but a different sample (size or records)")
+        elif reason == "no dataset fingerprint":
+            reason += " (legacy run without a manifest)"
+        rows.append([e["file"], ds, reason])
+    return rows
 
 
 def _edit_profiles() -> tuple[dict, float]:
@@ -78,6 +97,12 @@ def render_recommendation(reports: dict[str, dict]) -> None:
     profiles, headroom = _edit_profiles()
     result = analyze(reports, profiles, headroom)
     points = result["points"]
+    datasets = {f: dataset_label(r) for f, r in reports.items()}
+    reference_dataset = next((datasets[f] for f in points), None)
+    other_sample = [e for e in result["excluded"] if e["reason"].startswith("different dataset fingerprint")]
+    if other_sample:
+        note(f"{len(other_sample)} run(s) on another dataset or sample are excluded from the recommendation "
+             f"(it uses dataset {reference_dataset or DASH}); the reasons are listed below.")
 
     if not points:
         note("No run qualifies for the recommendation yet (see the excluded runs below).")
@@ -89,13 +114,13 @@ def render_recommendation(reports: dict[str, dict]) -> None:
             if not winner:
                 rows.append([name, f"{fmt_mb(prof['budget_mb'])}{limit}", "no feasible run", DASH, DASH, DASH, DASH])
                 continue
-            similar = [run_label(points[f]) for f in prof["alternatives_not_significantly_different"]]
+            similar = [run_label(points[f], datasets.get(f)) for f in prof["alternatives_not_significantly_different"]]
             why = (f"highest F1 of {len(prof['feasible'])} feasible run(s); "
                    f"{len(prof['not_feasible'])} over budget or limit")
             rows.append([
                 name,
                 f"{fmt_mb(prof['budget_mb'])}{limit}",
-                cell(run_label(winner), bold=True),
+                cell(run_label(winner, datasets.get(winner["file"])), bold=True),
                 fmt_ci(winner["f1"], winner["f1_ci"]),
                 f"{fmt_mb(winner['model_memory_mb'])} · p95 {fmt_seconds(winner['p95_latency_s'])}",
                 why,
@@ -112,15 +137,18 @@ def render_recommendation(reports: dict[str, dict]) -> None:
             "comparisons of one profile) cannot separate the run from the winner on this sample; it does not "
             "mean the two are equivalent. Confidence-interval overlap is not used as a test."
         )
-        _pareto_chart(points, result)
-        _pairwise_table(reports, points)
+        _pareto_chart(points, result, datasets)
+        _pairwise_table(reports, points, datasets)
 
     if result["excluded"]:
-        with st.expander(f"runs excluded from the recommendation ({len(result['excluded'])})", expanded=False):
-            data_table(["run", "reason"], [[e["file"], e["reason"]] for e in result["excluded"]], sans={1})
+        with st.expander(f"runs excluded from the recommendation ({len(result['excluded'])})",
+                         expanded=bool(other_sample)):
+            data_table(["run", "dataset", "reason"], excluded_rows(result["excluded"], reports, reference_dataset),
+                       sans={2})
 
 
-def _pareto_chart(points: dict, result: dict) -> None:
+def _pareto_chart(points: dict, result: dict, datasets: dict | None = None) -> None:
+    datasets = datasets or {}
     complete = [p for p in points.values() if p["f1"] is not None and p["model_memory_mb"] is not None]
     if not complete:
         return
@@ -137,7 +165,7 @@ def _pareto_chart(points: dict, result: dict) -> None:
             mode="markers",
             marker=dict(color=INK if filled else SURFACE, size=11, symbol="circle",
                         line=dict(width=1.5, color=INK)),
-            text=[run_label(p) for p in group],
+            text=[run_label(p, datasets.get(p["file"])) for p in group],
             customdata=[[p["p95_latency_s"], fmt_pct(p["unknown_rate"])] for p in group],
             hovertemplate="%{text}<br>F1 %{y:.3f} · %{x:.0f} MB · p95 %{customdata[0]:.2f} s"
                           " · unknown %{customdata[1]}<extra></extra>",
@@ -154,7 +182,8 @@ def _pareto_chart(points: dict, result: dict) -> None:
          height=420)
 
 
-def _pairwise_table(reports: dict[str, dict], points: dict) -> None:
+def _pairwise_table(reports: dict[str, dict], points: dict, datasets: dict | None = None) -> None:
+    datasets = datasets or {}
     names = [n for n in reports if n in points]
     if len(names) < 2:
         return
@@ -166,7 +195,7 @@ def _pairwise_table(reports: dict[str, dict], points: dict) -> None:
     for a, b, p in pairs:
         p_holm = next(adjusted) if p is not None else None
         rows.append([
-            run_label(points[a]), run_label(points[b]),
+            run_label(points[a], datasets.get(a)), run_label(points[b], datasets.get(b)),
             DASH if p is None else f"{p:.4f}",
             DASH if p_holm is None else cell(f"{p_holm:.4f}", bold=p_holm < ALPHA),
         ])

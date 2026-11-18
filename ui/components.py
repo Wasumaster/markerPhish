@@ -288,11 +288,14 @@ def run_timestamp(filename: str) -> str | None:
     return None
 
 
-def run_chip_label(filename: str, model_name: str | None, prompt_variant: str | None, legacy_name: str) -> str:
-    """Chip text 'model · 17 Oct 14:04'; non-legacy runs also show the prompt variant."""
+def run_chip_label(filename: str, model_name: str | None, prompt_variant: str | None, legacy_name: str,
+                   dataset: str | None = None) -> str:
+    """Chip text 'model · 17 Oct 14:04'; non-legacy runs also show the prompt variant, and the dataset if given."""
     parts = [model_name or filename]
     if prompt_variant and prompt_variant != legacy_name:
         parts.append(prompt_variant)
+    if dataset:
+        parts.append(dataset)
     stamp = run_timestamp(filename)
     if stamp:
         parts.append(stamp)
