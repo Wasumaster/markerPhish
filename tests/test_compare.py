@@ -123,10 +123,10 @@ def test_recommendation_exclusions_name_the_dataset():
 
     reports = {"c": _with_dataset(rep("c", 0.9, fp="y"), "sms"), "d": _with_dataset(rep("d", 0.9, fp="z"), "seed"),
                "l": rep("l", 0.9, protocol=1)}
-    excluded = [{"file": "c", "reason": "different dataset fingerprint (other sample)"},
+    excluded = [{"file": "c", "reason": "different dataset (other data)"},
                 {"file": "d", "reason": "different dataset fingerprint (other sample)"},
                 {"file": "l", "reason": "no dataset fingerprint"}]
     rows = excluded_rows(excluded, reports, "seed")
-    assert rows[0] == ["c", "sms", "different dataset fingerprint (other sample): dataset sms, recommendation uses seed"]
+    assert rows[0] == ["c", "sms", "different dataset (other data): dataset sms, recommendation uses seed"]
     assert "same dataset (seed) but a different sample" in rows[1][2]
     assert rows[2][1] == "\u2014" and "legacy run without a manifest" in rows[2][2]

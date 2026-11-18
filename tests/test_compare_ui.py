@@ -1,6 +1,6 @@
 """
 Compare tab AppTests: dataset column and filter, the dataset / sample mismatch
-warning.
+warning, the analysis sections behind config flags, and the CSV export.
 
 The runs are made against the fake Ollama and saved to an isolated results
 directory; no real Ollama server is contacted.
@@ -102,3 +102,79 @@ def test_results_header_names_the_dataset(two_dataset_runs):
     at = _app()
     results = _text(at, 2)
     assert "dataset sms" in results
+
+
+# ── C. analysis sections behind config flags, CSV export ──
+
+_FLAGGED_HEADINGS = {
+    "SHOW_RECOMMENDATION": ["Recommendation"],
+    "SHOW_TRADEOFF_CHARTS": ["Trade-offs"],
+    "SHOW_COMPARE_ANALYSIS": ["By class", "Pareto front and pairwise tests"],
+}
+
+
+def test_hidden_sections_are_absent_by_default(two_dataset_runs):
+    import config
+
+    assert not (config.SHOW_RECOMMENDATION or config.SHOW_TRADEOFF_CHARTS or config.SHOW_COMPARE_ANALYSIS)
+    at = _app()
+    _multiselect(at, "dataset").set_value(["sms", "seed+sms"]).run()
+    text = _text(at)
+    for headings in _FLAGGED_HEADINGS.values():
+        for h in headings:
+            assert h not in text
+    assert "constraint profiles" not in [e.label for e in at.tabs[COMPARE].expander]
+    assert not any(e.label.startswith("runs excluded") for e in at.tabs[COMPARE].expander)
+    assert len(at.tabs[COMPARE].get("plotly_chart")) == 0
+    # the kept parts are still there
+    assert "Compare runs" in text and "F1 [95% CI]" in text and "unknown answer as an error" in text
+    assert "Model memory is reported by Ollama" in text
+
+
+@pytest.mark.parametrize("flag", list(_FLAGGED_HEADINGS))
+def test_each_flag_shows_its_section(two_dataset_runs, monkeypatch, flag):
+    import config
+
+    monkeypatch.setattr(config, flag, True)
+    at = _app()
+    _multiselect(at, "dataset").set_value(["sms", "seed+sms"]).run()
+    assert not at.exception, [e.value for e in at.exception]
+    text = _text(at)
+    for h in _FLAGGED_HEADINGS[flag]:
+        assert h in text
+    others = [h for f, hs in _FLAGGED_HEADINGS.items() if f != flag for h in hs]
+    assert not any(h in text for h in others)
+    if flag == "SHOW_RECOMMENDATION":
+        labels = [e.label for e in at.tabs[COMPARE].expander]
+        assert "constraint profiles" in labels
+        excluded = next(e for e in at.tabs[COMPARE].expander if e.label.startswith("runs excluded"))
+        assert excluded.proto.expanded  # opened because runs on another dataset were excluded
+        assert "recommendation uses seed+sms" in text and "excluded from the recommendation" in text
+        assert len(at.tabs[COMPARE].get("plotly_chart")) == 0  # Pareto chart belongs to the analysis flag
+        assert not any(e.label.startswith("pairwise McNemar") for e in at.tabs[COMPARE].expander)
+    if flag == "SHOW_COMPARE_ANALYSIS":
+        assert len(at.tabs[COMPARE].get("plotly_chart")) == 2  # per class + Pareto
+        assert any(e.label.startswith("pairwise McNemar") for e in at.tabs[COMPARE].expander)
+        assert "constraint profiles" not in [e.label for e in at.tabs[COMPARE].expander]
+    if flag == "SHOW_TRADEOFF_CHARTS":
+        assert len(at.tabs[COMPARE].get("plotly_chart")) == 2
+
+
+def test_csv_export_still_works(two_dataset_runs):
+    import io
+
+    import pandas as pd
+
+    from frontend.multi_comparison import _csv
+    from backend.compare import build_comparison
+    from frontend.multi_comparison import load_reports
+
+    at = _app()
+    buttons = [b for b in at.tabs[COMPARE].get("download_button")]
+    assert len(buttons) == 1 and "Export comparison (CSV)" in buttons[0].proto.label
+
+    reports = load_reports(list(two_dataset_runs.values()))
+    rows = build_comparison(reports, ["laptop-8gb"])["rows"]
+    df = pd.read_csv(io.BytesIO(_csv(rows, ["laptop-8gb"])))
+    assert {"dataset", "fingerprint", "sample_mismatch", "f1", "fits_laptop-8gb"} <= set(df.columns)
+    assert sorted(df["dataset"]) == ["seed+sms", "seed+sms", "seed+sms", "sms"]

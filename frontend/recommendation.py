@@ -52,7 +52,7 @@ def excluded_rows(excluded: list[dict], reports: dict[str, dict], reference_data
     for e in excluded:
         ds = dataset_label(reports.get(e["file"]) or {})
         reason = e["reason"]
-        if reason.startswith("different dataset fingerprint"):
+        if reason.startswith("different dataset"):
             ref = reference_dataset or DASH
             reason += (f": dataset {ds}, recommendation uses {ref}" if ds != ref
                        else f": same dataset ({ds}) but a different sample (size or records)")
@@ -87,26 +87,53 @@ def _edit_profiles() -> tuple[dict, float]:
     return profiles, float(headroom)
 
 
-def render_recommendation(reports: dict[str, dict]) -> None:
-    """Recommendation, Pareto scatter and pairwise McNemar table for the selected runs."""
-    section_title(
-        "Recommendation",
-        "Per constraint profile: the feasible configuration with the highest F1 (unknown = error); ties go to "
-        "lower model memory, then lower P95 latency. Only protocol-2, non-dev runs on one dataset sample count.",
-    )
-    profiles, headroom = _edit_profiles()
-    result = analyze(reports, profiles, headroom)
+def _session_profiles() -> tuple[dict, float]:
+    """The profiles of this session (edited ones if any, else the defaults), without the editor."""
+    profiles = st.session_state.get(_PROFILES_KEY) or copy.deepcopy(CONSTRAINT_PROFILES)
+    return profiles, float(st.session_state.get(_HEADROOM_KEY, MEMORY_HEADROOM_FACTOR))
+
+
+def render_recommendation(reports: dict[str, dict], show_recommendation: bool = True,
+                          show_analysis: bool = True, other_dataset: list[str] | None = None) -> None:
+    """
+    Recommendation, Pareto scatter and pairwise McNemar table for the selected runs.
+
+    show_recommendation: the Recommendation section with the constraint-profiles editor,
+    the recommendation table and the excluded runs. show_analysis: the Pareto chart and
+    the pairwise tests (under their own heading when the recommendation is not shown).
+    other_dataset: runs whose dataset choice differs from the reference sample of the
+    Compare table; they are left out of the analysis and listed as excluded.
+    """
+    if not (show_recommendation or show_analysis):
+        return
+    if show_recommendation:
+        section_title(
+            "Recommendation",
+            "Per constraint profile: the feasible configuration with the highest F1 (unknown = error); ties go to "
+            "lower model memory, then lower P95 latency. Only protocol-2, non-dev runs on one dataset sample count.",
+        )
+        profiles, headroom = _edit_profiles()
+    else:
+        section_title(
+            "Pareto front and pairwise tests",
+            "F1 against model memory and paired McNemar tests for the eligible runs on one dataset sample.",
+        )
+        profiles, headroom = _session_profiles()
+    other_dataset = [f for f in (other_dataset or []) if f in reports]
+    result = analyze({f: r for f, r in reports.items() if f not in other_dataset}, profiles, headroom)
+    result["excluded"] = [{"file": f, "reason": "different dataset (other data)"} for f in other_dataset] +         result["excluded"]
     points = result["points"]
     datasets = {f: dataset_label(r) for f, r in reports.items()}
     reference_dataset = next((datasets[f] for f in points), None)
-    other_sample = [e for e in result["excluded"] if e["reason"].startswith("different dataset fingerprint")]
-    if other_sample:
+    other_sample = [e for e in result["excluded"] if e["reason"].startswith("different dataset")]
+    if other_sample and show_recommendation:
         note(f"{len(other_sample)} run(s) on another dataset or sample are excluded from the recommendation "
              f"(it uses dataset {reference_dataset or DASH}); the reasons are listed below.")
 
     if not points:
-        note("No run qualifies for the recommendation yet (see the excluded runs below).")
-    else:
+        note("No run qualifies for the recommendation yet (see the excluded runs below)." if show_recommendation
+             else "No eligible run for the Pareto chart and the pairwise tests.")
+    elif show_recommendation:
         rows = []
         for name, prof in result["per_profile"].items():
             winner = points.get(prof["winner"]) if prof["winner"] else None
@@ -137,10 +164,11 @@ def render_recommendation(reports: dict[str, dict]) -> None:
             "comparisons of one profile) cannot separate the run from the winner on this sample; it does not "
             "mean the two are equivalent. Confidence-interval overlap is not used as a test."
         )
+    if points and show_analysis:
         _pareto_chart(points, result, datasets)
         _pairwise_table(reports, points, datasets)
 
-    if result["excluded"]:
+    if result["excluded"] and show_recommendation:
         with st.expander(f"runs excluded from the recommendation ({len(result['excluded'])})",
                          expanded=bool(other_sample)):
             data_table(["run", "dataset", "reason"], excluded_rows(result["excluded"], reports, reference_dataset),

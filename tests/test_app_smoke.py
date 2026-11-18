@@ -263,7 +263,11 @@ def _save_fake_runs(fake_ollama, toy_df, accuracies):
         save_results(report, model, prompt_variant="zeroshot")
 
 
-def test_compare_recommends_per_profile(fake_ollama, legacy_results_dir, toy_df):
+def test_compare_recommends_per_profile(fake_ollama, legacy_results_dir, toy_df, monkeypatch):
+    import config
+
+    for flag in ("SHOW_RECOMMENDATION", "SHOW_TRADEOFF_CHARTS", "SHOW_COMPARE_ANALYSIS"):
+        monkeypatch.setattr(config, flag, True)  # hidden by default
     _save_fake_runs(fake_ollama, toy_df, {"acme-small:1b": 0.9, "acme-small:7b": 0.95, "zeta-chat:latest": 0.6})
     at = AppTest.from_file(APP, default_timeout=120)
     at.run()

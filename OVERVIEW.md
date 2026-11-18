@@ -415,7 +415,7 @@ measurement runs.
 
 ## 9. Constraint profiles and the optimum rule
 
-**Profiles** (`config.CONSTRAINT_PROFILES`, editable per session in Compare):
+**Profiles** (`config.CONSTRAINT_PROFILES`, editable per session in Compare when `SHOW_RECOMMENDATION` is on):
 
 | profile | RAM | GPU | latency limit |
 |---|---|---|---|
@@ -445,6 +445,13 @@ flagged.
 "Not significantly different" does **not** mean equivalent: it means that the paired answers on this sample cannot
 separate the two configurations. The recommendation names the configuration (model + prompt + differing options),
 why it won, and these alternatives.
+
+**In the UI.** The Compare tab currently shows only the runs table (with a dataset column and a dataset filter,
+default: the dataset of the most recent run) and its CSV export. Runs whose dataset or dataset fingerprint
+differs from the reference sample are named in a warning, never bold and left out of the recommendation. The
+recommendation, the Pareto chart and pairwise tests, the per-class breakdown and the trade-off charts are
+computed by the same code but rendered only when `SHOW_RECOMMENDATION`, `SHOW_COMPARE_ANALYSIS` or
+`SHOW_TRADEOFF_CHARTS` in `config.py` is `True` (all default `False`).
 
 ---
 

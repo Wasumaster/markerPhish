@@ -45,10 +45,12 @@ Start the app with `run.bat` (Windows) or `streamlit run app.py`, then open `htt
    "non-LLM baseline" expander trains and evaluates a TF-IDF + logistic regression reference on the same sample
    in seconds. It is shown in Compare as a reference point but is excluded from the recommendation.
 4. **Results:** detection with confidence intervals, per channel, cost, resources over time, hardware and manifest.
-5. **Compare:** all runs side by side, the recommendation per constraint profile, the Pareto chart and pairwise
-   McNemar tests. A dataset filter (default: the dataset of the most recent run) and a dataset column keep
-   runs on different data apart; if the selected runs differ in dataset or sample, a warning names them and
-   they are never bold and never recommended.
+5. **Compare:** the selected runs side by side in one table, with a CSV export. A dataset filter (default:
+   the dataset of the most recent run) and a dataset column keep runs on different data apart; if the selected
+   runs differ in dataset or sample, a warning names them and they are never bold and never recommended. The
+   recommendation per constraint profile, the trade-off charts and the other analyses (per class, Pareto chart,
+   pairwise McNemar tests) are hidden for now; set `SHOW_RECOMMENDATION`, `SHOW_TRADEOFF_CHARTS` or
+   `SHOW_COMPARE_ANALYSIS` in `config.py` to `True` to show them.
 
 Optional: `python -m backend.calibrate <model>` measures the model's tokenizer density (at most three requests)
 for the context check. Without it the app uses a conservative default and shows a note.

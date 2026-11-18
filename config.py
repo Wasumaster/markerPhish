@@ -296,6 +296,15 @@ CONSTRAINT_PROFILES = {
 DEFAULT_CONSTRAINT_PROFILES = ["laptop-8gb", "laptop-16gb"]
 
 # ──────────────────────────────────────────────
+# Compare tab sections
+# ──────────────────────────────────────────────
+# The Compare tab always shows the runs table and the CSV export. The sections
+# below are rendered only when their flag is True (no heading or placeholder otherwise).
+SHOW_RECOMMENDATION = False  # Recommendation section and the editable constraint-profiles table
+SHOW_TRADEOFF_CHARTS = False  # Trade-offs charts (F1 vs p95 latency, throughput vs model memory)
+SHOW_COMPARE_ANALYSIS = False  # other analysis below the table: by class, Pareto chart, pairwise McNemar tests
+
+# ──────────────────────────────────────────────
 # Sample-size presets
 # ──────────────────────────────────────────────
 # Sample size = records per run (one model x one prompt variant x one set of

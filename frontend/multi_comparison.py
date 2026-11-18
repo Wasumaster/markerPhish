@@ -1,10 +1,13 @@
 """
 MarkerPhish — Compare tab
 ==========================
-Compares saved runs: one table (best value per column in bold, only among runs
-that may be best), the recommendation per constraint profile, trade-off
-scatters and the legacy per-class breakdown. Rendering only: rows, rules and
-analyses come from backend.compare and backend.optimum.
+Compares saved runs: a dataset filter, one table (best value per column in
+bold, only among runs that may be best) and its CSV export. The recommendation
+per constraint profile, the trade-off scatters and the other analyses (per-class
+breakdown, Pareto chart, pairwise tests) are rendered only when their flag in
+config.py is True (SHOW_RECOMMENDATION, SHOW_TRADEOFF_CHARTS,
+SHOW_COMPARE_ANALYSIS). Rendering only: rows, rules and analyses come from
+backend.compare and backend.optimum.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+import config
 from backend import utils as backend_utils
 from backend.compare import NO_DATASET, best_values, build_comparison, dataset_label, hidden_reason, visible_runs
 from backend.utils import ensure_report_compatibility, list_saved_result_files, load_result_by_filename
@@ -236,7 +240,7 @@ def _per_class(reports: dict[str, dict], rows: list[dict]) -> None:
 
 
 def render_multi_comparison_view() -> None:
-    """Run selection, comparison table, recommendation, trade-off charts and per-class breakdown."""
+    """Dataset filter, run selection, comparison table and CSV export; the analyses behind config flags."""
     page_title(
         "Compare runs",
         "Detection quality against cost, for the runs you pick. Best value in each column is set in bold.",
@@ -333,7 +337,15 @@ def render_multi_comparison_view() -> None:
     st.download_button("Export comparison (CSV)", data=_csv(rows, profile_names),
                        file_name="markerphish_comparison.csv", mime="text/csv")
 
-    render_recommendation(selected)
-    section_title("Trade-offs", "Detection against latency and memory for the selected runs.")
-    _tradeoff_charts(rows)
-    _per_class(selected, rows)
+    # Sections behind config flags: not rendered at all when the flag is False.
+    if config.SHOW_RECOMMENDATION or config.SHOW_COMPARE_ANALYSIS:
+        reference_dataset = (comparison["reference"] or {}).get("dataset")
+        render_recommendation(selected, show_recommendation=config.SHOW_RECOMMENDATION,
+                              show_analysis=config.SHOW_COMPARE_ANALYSIS,
+                              other_dataset=[r["file"] for r in rows
+                                             if r["dataset"] and r["dataset"] != reference_dataset])
+    if config.SHOW_TRADEOFF_CHARTS:
+        section_title("Trade-offs", "Detection against latency and memory for the selected runs.")
+        _tradeoff_charts(rows)
+    if config.SHOW_COMPARE_ANALYSIS:
+        _per_class(selected, rows)
